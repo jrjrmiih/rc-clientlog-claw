@@ -6,7 +6,8 @@ from enum import Enum
 
 
 class ErrType(Enum):
-    NAV_DNS_ERR = 'NAV-DNS-ERR'
+    NAV_DNS_FAILED = 'NAV-DNS-FAILED'
+    NAV_CON_REFUSED = 'NAV-CON-REFUSED'
 
 
 class Claw:
@@ -32,11 +33,12 @@ class Claw:
         # whole log summary.
         self.logsum = {}
         self.logsum_platver = {}
+        self.logsum_navi = {'req': 0, 'rep': 0, 'errcode': {}}
         # append every log abstract which enconter error, to show them all at then end.
         self.logerr_list = []
         # single log abstract.
         self.logabs = {}
-        self.logabs_navi = {}
+        self.logabs_navi = {'req': 0, 'rep': 0, 'errcode': {}, 'extra': []}
         # wheather encounter error when pasring single log to abstract.
         self.logabs_encounter_err = False
 
@@ -72,10 +74,11 @@ class Claw:
         log = None
         try:
             for line, log in enumerate(lines):
+                # 'line' start from 0 here, but start from 1 in file.
                 # remove '\n' character at the end of log.
                 log = log[:-1]
                 if log.startswith('fileName'):
-                    not_support = self._prolog_filename(filepath, line, log)
+                    not_support = self._prolog_filename(filepath, line + 1, log)
                 elif not_support:
                     continue
                 elif log != '':
@@ -84,21 +87,30 @@ class Claw:
                         continue
                     if self._prolog_navi(json_obj):
                         continue
+            self._dump_sum_clean()
         except Exception as err:
-            self._debug_ouput(err, filepath, line, log)
+            self._debug_ouput(err, filepath, line + 1, log)
             sys.exit(-1)
 
-    def _dump_and_clean(self):
+    def _dump_sum_clean(self):
         """
-        dump the abstract data of a log part to database, and clean the data.
+        dump the abstract of a single log to database, sum data, and clean.
         """
         # dump
         self.logabs['navi'] = self.logabs_navi
         if self.logabs_encounter_err:
             self.logerr_list.append(self.logabs)
+        #sum
+        self.logsum_navi['req'] = self.logsum_navi['req'] + self.logabs_navi['req']
+        self.logsum_navi['rep'] = self.logsum_navi['rep'] + self.logabs_navi['rep']
+        for key, value in self.logabs_navi['errcode'].items():
+            if key not in self.logsum_navi['errcode']:
+                self.logsum_navi['errcode'][key] = value
+            else:
+                self.logsum_navi['errcode'][key] = self.logsum_navi['errcode'][key] + value
         # clean
         self.logabs = {}
-        self.logabs_navi = {'req': 0, 'rep': 0, 'code': {}, 'extra': []}
+        self.logabs_navi = {'req': 0, 'rep': 0, 'errcode': {}, 'extra': []}
         self.logabs_encounter_err = False
 
     def _prolog_filename(self, filepath, line, log):
@@ -107,12 +119,13 @@ class Claw:
         :param log: the single log line.
         :return: 'True' if the log is handled.
         """
-        self._dump_and_clean()
+        self._dump_sum_clean()
         items = log.split(';;;')
         self.logabs['file'] = filepath + ' +' + str(line)
         self.logabs['userid'] = items[2]
         self.logabs['sdkver'] = items[3]
         self.logabs['platform'] = items[4]
+        self.logabs['userip'] = items[5]
         platver = self.logabs['platform'] + '-' + self.logabs['sdkver']
         if platver not in self.logsum_platver:
             self.logsum_platver[platver] = 1
@@ -127,7 +140,7 @@ class Claw:
         :return: 'True' if the log is handled.
         """
         if json_obj['tag'] == 'Log_Opened':
-            self._dump_and_clean()
+            self._dump_sum_clean()
             return True
         return False
 
@@ -143,22 +156,41 @@ class Claw:
             self.logabs_navi['rep'] = self.logabs_navi['rep'] + 1
             if json_obj['meta']['code'] != 200:
                 if json_obj['meta']['code'] == -1 and json_obj['meta']['ip'] == 'null':
-                    self.err_nav_dns_err(json_obj)
+                    self._err_nav_dns_failed(json_obj)
+                if json_obj['meta']['code'] == -1 and 'Connection refused' in json_obj['meta']['stacks']:
+                    self._err_nav_con_refused(json_obj)
 
-    def err_nav_dns_err(self, json_obj):
+    def _err_nav_dns_failed(self, json_obj):
         """
-        错误代码：NAV-DNS-ERR
+        错误代码：NAV-DNS-FAILED
         错误描述：导航地址 DNS 解析失败。
         认定条件："tag":"L-get_navi-R", "meta":{"ip":"null"}
         支持版本：Android-2.8.29
         """
         self.logabs_encounter_err = True
-        if ErrType.NAV_DNS_ERR.value not in self.logabs_navi['code']:
-            self.logabs_navi['code'][ErrType.NAV_DNS_ERR.value] = 1
+        if ErrType.NAV_DNS_FAILED.value not in self.logabs_navi['errcode']:
+            self.logabs_navi['errcode'][ErrType.NAV_DNS_FAILED.value] = 1
         else:
-            self.logabs_navi['code'][ErrType.NAV_DNS_ERR.value] = \
-                self.logabs_navi['code'][ErrType.NAV_DNS_ERR.value] + 1
-        err = ErrType.NAV_DNS_ERR.value + ':' + json_obj['meta']['domain']
+            self.logabs_navi['errcode'][ErrType.NAV_DNS_FAILED.value] = \
+                self.logabs_navi['errcode'][ErrType.NAV_DNS_FAILED.value] + 1
+        err = ErrType.NAV_DNS_FAILED.value + ':' + json_obj['meta']['domain']
+        if err not in self.logabs_navi['extra']:
+            self.logabs_navi['extra'].append(err)
+
+    def _err_nav_con_refused(self, json_obj):
+        """
+        错误代码：NAV-CON-REFUSED
+        错误描述：导航连接失败，原因未知。
+        认定条件："tag":"L-get_navi-R", "meta":{"stacks":"...Connection refused..."}
+        支持版本：Android-2.8.29
+        """
+        self.logabs_encounter_err = True
+        if ErrType.NAV_CON_REFUSED.value not in self.logabs_navi['errcode']:
+            self.logabs_navi['errcode'][ErrType.NAV_CON_REFUSED.value] = 1
+        else:
+            self.logabs_navi['errcode'][ErrType.NAV_CON_REFUSED.value] = \
+                self.logabs_navi['errcode'][ErrType.NAV_CON_REFUSED.value] + 1
+        err = ErrType.NAV_CON_REFUSED.value + ':' + json_obj['meta']['domain'] + ';;;' + json_obj['meta']['ip']
         if err not in self.logabs_navi['extra']:
             self.logabs_navi['extra'].append(err)
 
@@ -176,6 +208,7 @@ class Claw:
         for err_exp in self.logerr_list:
             print(err_exp)
         self.logsum['platver'] = self.logsum_platver
+        self.logsum['navi'] = self.logsum_navi
         print('logsum = {0}'.format(self.logsum))
 
 
