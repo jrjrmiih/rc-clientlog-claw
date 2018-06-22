@@ -63,3 +63,36 @@ ERR_NAV_END_STREAM = 'NAV-END-STREAM'
 复现版本：Android-2.8.29
 """
 ERR_NAV_ECONNRESET = 'NAV-ECONNRESET'
+"""
+错误描述：原因未知。
+认定条件："tag":"L-get_navi-R", "meta":{"stacks":"...SocketException: recvfrom failed: ETIMEDOUT..."}
+复现版本：Android-2.8.29
+"""
+ERR_NAV_ETIMEDOUT = 'NAV-ETIMEDOUT'
+"""
+错误描述：原因未知。
+认定条件："tag":"L-get_navi-R", "meta":{"stacks":"...SocketException: Software caused connection abort..."}
+复现版本：Android-2.8.29
+"""
+ERR_NAV_SOFTWARE_ABORT = 'NAV-SOFTWARE-ABORT'
+"""
+错误描述：原因未知。
+认定条件："tag":"L-get_navi-R", "meta":{"stacks":"...ProtocolException: Too many follow-up requests: 21
+        at com.android.okhttp.internal.huc.HttpURLConnectionImpl.getResponse(HttpURLConnectionImpl.java:451)..."}
+复现版本：Android-2.8.29
+"""
+ERR_NAV_OKHTTP_TOOMANY_FOLLOWUP = 'NAV-OKHTTP-TOOMANY-FOLLOWUP'
+"""
+错误描述：原因未知。
+认定条件："tag":"L-get_navi-R", "meta":{"stacks":"...SocketException: Network is unreachable
+        at java.net.PlainSocketImpl.socketConnect(Native Method)..."}
+复现版本：Android-2.8.29
+"""
+ERR_NAV_SOCKET_NETWORK_UNREACHABLE = 'NAV-SOCKET-NETWORK-UNREACHABLE'
+"""
+错误描述：原因未知。
+认定条件："tag":"L-get_navi-R", "meta":{"stacks":"...SocketException: Network is unreachable
+        at java.net.PlainSocketImpl.socketConnect(Native Method)..."}
+复现版本：Android-2.8.29
+"""
+ERR_NAV_CON_NETWORK_UNREACHABLE = 'NAV-CON-NETWORK-UNREACHABLE'

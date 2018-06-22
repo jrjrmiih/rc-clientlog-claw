@@ -43,10 +43,12 @@ class Claw:
         self.logsum = {}
         self.logsum_platver = {}
         self.logsum_navi = {KEY_REQ: 0, KEY_REP: 0, KEY_SUCCESS: 0, KEY_FAILED: 0, KEY_ERRCODE: {}}
+        self.skip_line = 0
         # append every log abstract which enconter error, to show them all at then end.
         self.logerr_list = []
         # single log abstract.
-        self._clean_logabs()
+        self._init_logabs()
+
         # debug info.
         self.debug = {}
         self.n = 0
@@ -102,6 +104,7 @@ class Claw:
             except JSONDecodeError as err:
                 if laststop == self.n:
                     self._debug_ouput()
+                    self._skip_line(lines)
                 self._fix_invalid_return()
                 self._fix_lack_brace()
                 self._fix_x00_x00(lines)
@@ -111,7 +114,7 @@ class Claw:
             except RuntimeError:
                 sys.exit(-1)
             except Exception:
-                self._debug_ouput()
+                self._debug_ouput_raise()
                 sys.exit(-1)
             break
 
@@ -134,9 +137,9 @@ class Claw:
             else:
                 self.logsum_navi[KEY_ERRCODE][key] = self.logsum_navi[KEY_ERRCODE][key] + value
         # clean
-        self._clean_logabs()
+        self._init_logabs()
 
-    def _clean_logabs(self):
+    def _init_logabs(self):
         self.logabs = {}
         self.logabs_navi = {KEY_REQ: 0, KEY_REP: 0, KEY_SUCCESS: 0, KEY_FAILED: 0, KEY_ERRCODE: {}, KEY_EXTRA: []}
         self.logabs_encounter_err = False
@@ -206,10 +209,24 @@ class Claw:
                         self._err_nav_handler(json_obj, errdef.ERR_NAV_END_STREAM)
                     elif 'recvfrom failed: ECONNRESET' in json_obj['meta']['stacks']:
                         self._err_nav_handler(json_obj, errdef.ERR_NAV_ECONNRESET)
+                    elif 'SocketException: recvfrom failed: ETIMEDOUT' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_ETIMEDOUT)
+                    elif 'SocketException: Software caused connection abort' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_SOFTWARE_ABORT)
+                    elif 'ProtocolException: Too many follow-up requests' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_OKHTTP_TOOMANY_FOLLOWUP)
+                    elif 'SocketException: Network is unreachable' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_SOCKET_NETWORK_UNREACHABLE)
+                    elif 'ConnectException: Network is unreachable' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_CON_NETWORK_UNREACHABLE)
+                    elif 'SocketException: Connection timed out' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_CON_NETWORK_UNREACHABLE)
+                    elif 'SocketTimeoutException: failed to connect to' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_CON_NETWORK_UNREACHABLE)
                     else:
-                        self._debug_ouput()
+                        self._debug_ouput_raise()
                 else:
-                    self._debug_ouput()
+                    self._debug_ouput_raise()
 
     def _fix_lack_brace(self):
         """
@@ -278,7 +295,21 @@ class Claw:
         if err not in self.logabs_navi[KEY_EXTRA]:
             self.logabs_navi[KEY_EXTRA].append(err)
 
+    def _skip_line(self, lines):
+        self.skip_line = self.skip_line + 1
+        self.n = self.n + 1
+        self.log = lines[self.n - 1][:-1]
+
     def _debug_ouput(self):
+        self.logsum['platver'] = self.logsum_platver
+        print('logsum = {0}'.format(self.logsum))
+        self.logabs['navi'] = self.logabs_navi
+        print('logabs = {0}'.format(self.logabs))
+        self.debug['n'] = self.n
+        self.debug['log'] = self.log
+        print('debug = {0}'.format(self.debug))
+
+    def _debug_ouput_raise(self):
         self.logsum['platver'] = self.logsum_platver
         print('logsum = {0}'.format(self.logsum))
         self.logabs['navi'] = self.logabs_navi
