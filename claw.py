@@ -2,26 +2,25 @@ import getopt
 import json
 import os
 import sys
-# json keys.
 import time
 from json import JSONDecodeError
 
+# json keys.
+import errdef
+
 KEY_REQ = 'req'
 KEY_REP = 'rep'
+KEY_SUCCESS = 'success'
+KEY_FAILED = 'failed'
 KEY_ERRCODE = 'errcode'
 KEY_EXTRA = 'extra'
 
-# error types.
-ERR_NAV_DNS_FAILED = 'NAV-DNS-FAILED'
-ERR_NAV_CON_REFUSED = 'NAV-CON-REFUSED'
-ERR_NAV_STACKS_EMPTY = 'NAV-STACKS-EMPTY'
-ERR_NAV_CON_TIMEOUT = 'NAV-CON-TIMEOUT'
-ERR_NAV_CON_FAILED = 'NAV-CON-FAILED'
-ERR_NAV_STREAM_CLOSED = 'NAV-STREAM-CLOSED'
+
 
 
 class Claw:
-    support_list = ('Android-2.8.29', 'Android-2.8.30', 'Android-2.8.31', 'Android-2.8.32')
+    support_list = ('Android-2.8.29', 'Android-2.8.30', 'Android-2.8.31', 'Android-2.8.32', 'Android-2.9.0',
+                    'Android-2.9.1')
 
     def __init__(self):
         if len(sys.argv) == 1:
@@ -43,14 +42,11 @@ class Claw:
         # whole log summary.
         self.logsum = {}
         self.logsum_platver = {}
-        self.logsum_navi = {KEY_REQ: 0, KEY_REP: 0, KEY_ERRCODE: {}}
+        self.logsum_navi = {KEY_REQ: 0, KEY_REP: 0, KEY_SUCCESS: 0, KEY_FAILED: 0, KEY_ERRCODE: {}}
         # append every log abstract which enconter error, to show them all at then end.
         self.logerr_list = []
         # single log abstract.
-        self.logabs = {}
-        self.logabs_navi = {KEY_REQ: 0, KEY_REP: 0, KEY_ERRCODE: {}, KEY_EXTRA: []}
-        # wheather encounter error when pasring single log to abstract.
-        self.logabs_encounter_err = False
+        self._clean_logabs()
         # debug info.
         self.debug = {}
         self.n = 0
@@ -82,6 +78,7 @@ class Claw:
     def _parse_lines(self, filepath, lines):
         not_support = False
         start = 1
+        laststop = 0
         while True:
             try:
                 # '+ 1' for matching the line number start form 1 not 0.
@@ -103,9 +100,13 @@ class Claw:
                             continue
                 self._dump_sum_clean()
             except JSONDecodeError as err:
+                if laststop == self.n:
+                    self._debug_ouput()
                 self._fix_invalid_return()
                 self._fix_lack_brace()
+                self._fix_x00_x00(lines)
                 start = self.n
+                laststop = self.n
                 continue
             except RuntimeError:
                 sys.exit(-1)
@@ -125,14 +126,19 @@ class Claw:
         # sum
         self.logsum_navi[KEY_REQ] = self.logsum_navi[KEY_REQ] + self.logabs_navi[KEY_REQ]
         self.logsum_navi[KEY_REP] = self.logsum_navi[KEY_REP] + self.logabs_navi[KEY_REP]
+        self.logsum_navi[KEY_SUCCESS] = self.logsum_navi[KEY_SUCCESS] + self.logabs_navi[KEY_SUCCESS]
+        self.logsum_navi[KEY_FAILED] = self.logsum_navi[KEY_FAILED] + self.logabs_navi[KEY_FAILED]
         for key, value in self.logabs_navi[KEY_ERRCODE].items():
             if key not in self.logsum_navi[KEY_ERRCODE]:
                 self.logsum_navi[KEY_ERRCODE][key] = value
             else:
                 self.logsum_navi[KEY_ERRCODE][key] = self.logsum_navi[KEY_ERRCODE][key] + value
         # clean
+        self._clean_logabs()
+
+    def _clean_logabs(self):
         self.logabs = {}
-        self.logabs_navi = {KEY_REQ: 0, KEY_REP: 0, KEY_ERRCODE: {}, KEY_EXTRA: []}
+        self.logabs_navi = {KEY_REQ: 0, KEY_REP: 0, KEY_SUCCESS: 0, KEY_FAILED: 0, KEY_ERRCODE: {}, KEY_EXTRA: []}
         self.logabs_encounter_err = False
 
     def _prolog_filename(self, filepath):
@@ -175,19 +181,33 @@ class Claw:
             self.logabs_navi[KEY_REQ] = self.logabs_navi[KEY_REQ] + 1
         elif json_obj['tag'] == 'L-get_navi-R':
             self.logabs_navi[KEY_REP] = self.logabs_navi[KEY_REP] + 1
-            if json_obj['meta']['code'] != 200:
-                if json_obj['meta']['code'] == -1 and json_obj['meta']['ip'] == 'null':
-                    self._err_nav_dns_failed(json_obj)
-                elif json_obj['meta']['code'] == -1 and 'Connection refused' in json_obj['meta']['stacks']:
-                    self._err_nav_con_refused(json_obj)
-                elif json_obj['meta']['code'] == -1 and 'connect timed out' in json_obj['meta']['stacks']:
-                    self._err_nav_con_timeout(json_obj)
-                elif json_obj['meta']['code'] == -1 and 'failed to connect to' in json_obj['meta']['stacks']:
-                    self._err_nav_con_failed(json_obj)
-                elif json_obj['meta']['code'] == -1 and 'Stream closed' in json_obj['meta']['stacks']:
-                    self._err_nav_stream_closed(json_obj)
-                elif json_obj['meta']['code'] == -1 and json_obj['meta']['stacks'] == '':
-                    self._err_nav_stacks_empty(json_obj)
+            if json_obj['meta']['code'] == 200:
+                self.logabs_navi[KEY_SUCCESS] = self.logabs_navi[KEY_SUCCESS] + 1
+            else:
+                self.logabs_navi[KEY_FAILED] = self.logabs_navi[KEY_FAILED] + 1
+                if json_obj['meta']['code'] == -1:
+                    if json_obj['meta']['stacks'] == '':
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_STACKS_EMPTY)
+                    elif json_obj['meta']['ip'] == 'null':
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_DNS_FAILED)
+                    elif 'Connection refused' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_CON_REFUSED)
+                    elif 'connect timed out' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_CON_TIMEOUT)
+                    elif 'failed to connect to' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_CON_FAILED)
+                    elif 'Stream closed' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_STREAM_CLOSED)
+                    elif 'SocketTimeoutException' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_SOCKET_TIMEOUT)
+                    elif 'SocketException: Connection reset' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_CON_RESET)
+                    elif 'unexpected end of stream on Connection' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_END_STREAM)
+                    elif 'recvfrom failed: ECONNRESET' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_ECONNRESET)
+                    else:
+                        self._debug_ouput()
                 else:
                     self._debug_ouput()
 
@@ -213,6 +233,17 @@ class Claw:
         self.log = self.log.replace('\\n"', '"')
         self.log = self.log.replace('\t', '    ')
 
+    def _fix_x00_x00(self, lines):
+        """
+        Bug原因：日志整合的文件中，会出现 n 多的 '\x00'，导致 json.loads() 失败。
+                初步怀疑是日志收集服务器收到日志到合并大文件中的 bug。
+        典型案例：log = '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00...'
+        修复方案：忽略这一行。
+        """
+        if self.log.startswith('\x00'):
+            self.n = self.n + 1
+            self.log = lines[self.n - 1][:-1]
+
     def _fix_kv_unpaired(self, json_obj):
         """
         Bug原因：当写日志的 key 与 value 个数不匹配时，生成 json['meta'] 中的键值没有分配。
@@ -236,105 +267,14 @@ class Claw:
             self.log = json.dumps(json_obj)
         return json_obj
 
-    def _err_nav_dns_failed(self, json_obj):
-        """
-        错误代码：'NAV-DNS-FAILED'
-        错误描述：导航地址 DNS 解析失败。
-        认定条件："tag":"L-get_navi-R", "meta":{"ip":"null"}
-        复现版本：Android-2.8.29
-        """
+    def _err_nav_handler(self, json_obj, errtype):
         self.logabs_encounter_err = True
-        if ERR_NAV_DNS_FAILED not in self.logabs_navi[KEY_ERRCODE]:
-            self.logabs_navi[KEY_ERRCODE][ERR_NAV_DNS_FAILED] = 1
+        if errtype not in self.logabs_navi[KEY_ERRCODE]:
+            self.logabs_navi[KEY_ERRCODE][errtype] = 1
         else:
-            self.logabs_navi[KEY_ERRCODE][ERR_NAV_DNS_FAILED] = \
-                self.logabs_navi[KEY_ERRCODE][ERR_NAV_DNS_FAILED] + 1
-        err = ERR_NAV_DNS_FAILED + ':' + json_obj['meta']['domain']
-        if err not in self.logabs_navi[KEY_EXTRA]:
-            self.logabs_navi[KEY_EXTRA].append(err)
-
-    def _err_nav_con_refused(self, json_obj):
-        """
-        错误代码：'NAV-CON-REFUSED'
-        错误描述：导航连接失败，原因未知。
-        认定条件："tag":"L-get_navi-R", "meta":{"stacks":"...Connection refused..."}
-        复现版本：Android-2.8.29
-        """
-        self.logabs_encounter_err = True
-        if ERR_NAV_CON_REFUSED not in self.logabs_navi[KEY_ERRCODE]:
-            self.logabs_navi[KEY_ERRCODE][ERR_NAV_CON_REFUSED] = 1
-        else:
-            self.logabs_navi[KEY_ERRCODE][ERR_NAV_CON_REFUSED] = \
-                self.logabs_navi[KEY_ERRCODE][ERR_NAV_CON_REFUSED] + 1
-        err = ERR_NAV_CON_REFUSED + ':' + json_obj['meta']['domain'] + ';;;' + json_obj['meta']['ip']
-        if err not in self.logabs_navi[KEY_EXTRA]:
-            self.logabs_navi[KEY_EXTRA].append(err)
-
-    def _err_nav_con_timeout(self, json_obj):
-        """
-        错误代码：'NAV-CON-TIMEOUT'
-        错误描述：导航连接失败，连接超时。
-        认定条件："tag":"L-get_navi-R", "meta":{"stacks":"...connect timed out..."}
-        复现版本：Android-2.8.29
-        """
-        self.logabs_encounter_err = True
-        if ERR_NAV_CON_TIMEOUT not in self.logabs_navi[KEY_ERRCODE]:
-            self.logabs_navi[KEY_ERRCODE][ERR_NAV_CON_TIMEOUT] = 1
-        else:
-            self.logabs_navi[KEY_ERRCODE][ERR_NAV_CON_TIMEOUT] = \
-                self.logabs_navi[KEY_ERRCODE][ERR_NAV_CON_TIMEOUT] + 1
-        err = ERR_NAV_CON_TIMEOUT + ':' + json_obj['meta']['domain'] + ';;;' + json_obj['meta']['ip']
-        if err not in self.logabs_navi[KEY_EXTRA]:
-            self.logabs_navi[KEY_EXTRA].append(err)
-
-    def _err_nav_con_failed(self, json_obj):
-        """
-        错误代码：'NAV-CON-FAILED'
-        错误描述：导航连接失败，原因未知。
-        认定条件："tag":"L-get_navi-R", "meta":{"stacks":"...failed to connect to..."}
-        复现版本：Android-2.8.29
-        """
-        self.logabs_encounter_err = True
-        if ERR_NAV_CON_FAILED not in self.logabs_navi[KEY_ERRCODE]:
-            self.logabs_navi[KEY_ERRCODE][ERR_NAV_CON_FAILED] = 1
-        else:
-            self.logabs_navi[KEY_ERRCODE][ERR_NAV_CON_FAILED] = \
-                self.logabs_navi[KEY_ERRCODE][ERR_NAV_CON_FAILED] + 1
-        err = ERR_NAV_CON_FAILED + ':' + json_obj['meta']['domain'] + ';;;' + json_obj['meta']['ip']
-        if err not in self.logabs_navi[KEY_EXTRA]:
-            self.logabs_navi[KEY_EXTRA].append(err)
-
-    def _err_nav_stream_closed(self, json_obj):
-        """
-        错误代码：'NAV-CON-FAILED'
-        错误描述：导航连接失败，原因未知。
-        认定条件："tag":"L-get_navi-R", "meta":{"stacks":"...failed to connect to..."}
-        复现版本：Android-2.8.29
-        """
-        self.logabs_encounter_err = True
-        if ERR_NAV_STREAM_CLOSED not in self.logabs_navi[KEY_ERRCODE]:
-            self.logabs_navi[KEY_ERRCODE][ERR_NAV_STREAM_CLOSED] = 1
-        else:
-            self.logabs_navi[KEY_ERRCODE][ERR_NAV_STREAM_CLOSED] = \
-                self.logabs_navi[KEY_ERRCODE][ERR_NAV_STREAM_CLOSED] + 1
-        err = ERR_NAV_STREAM_CLOSED + ':' + json_obj['meta']['domain'] + ';;;' + json_obj['meta']['ip']
-        if err not in self.logabs_navi[KEY_EXTRA]:
-            self.logabs_navi[KEY_EXTRA].append(err)
-
-    def _err_nav_stacks_empty(self, json_obj):
-        """
-        错误代码：'NAV-STACKS-EMPTY'
-        错误描述：导航连接失败，打印不出崩溃栈，原因未知。
-        认定条件："tag":"L-get_navi-R", "meta":{"stacks":""}
-        复现版本：Android-2.8.29
-        """
-        self.logabs_encounter_err = True
-        if ERR_NAV_STACKS_EMPTY not in self.logabs_navi[KEY_ERRCODE]:
-            self.logabs_navi[KEY_ERRCODE][ERR_NAV_STACKS_EMPTY] = 1
-        else:
-            self.logabs_navi[KEY_ERRCODE][ERR_NAV_STACKS_EMPTY] = \
-                self.logabs_navi[KEY_ERRCODE][ERR_NAV_STACKS_EMPTY] + 1
-        err = ERR_NAV_CON_REFUSED + ':' + json_obj['meta']['domain'] + ';;;' + json_obj['meta']['ip']
+            self.logabs_navi[KEY_ERRCODE][errtype] = \
+                self.logabs_navi[KEY_ERRCODE][errtype] + 1
+        err = errtype + ':' + json_obj['meta']['domain']
         if err not in self.logabs_navi[KEY_EXTRA]:
             self.logabs_navi[KEY_EXTRA].append(err)
 

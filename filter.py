@@ -10,7 +10,7 @@ def prolog_filename(line):
 
 
 readfile = sys.argv[1]
-writefile = sys.argv[2]G
+writefile = sys.argv[2]
 not_support = False
 with open(readfile, 'r', encoding='utf-8') as f:
     lines = f.readlines()
