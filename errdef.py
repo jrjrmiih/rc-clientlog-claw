@@ -10,6 +10,30 @@ multi types of error definitions file.
 """
 ERR_NAV_STACKS_EMPTY = 'NAV-STACKS-EMPTY'
 """
+错误描述：连接导航时，使用的 okhttp 三方库崩溃。
+认定条件："tag":"L-get_navi-R", "meta":{"stacks":"...com.android.okhttp..."}
+复现版本：Android-2.8.29
+"""
+ERR_NAV_OKHTTP_CRASH = 'NAV-OKHTTP-CRASH'
+"""
+错误描述：连接导航时，使用的 okhttp 三方库崩溃。
+认定条件："tag":"L-get_navi-R", "meta":{"stacks":"...lang.NullPointerException..."}
+复现版本：Android-2.8.29
+"""
+ERR_NAV_NULLPOINTER = 'NAV-NULLPOINTER'
+"""
+错误描述：原因未知。
+认定条件："tag":"L-get_navi-R", "meta":{"stacks":"...libcore.io.Streams.readAsciiLine..."}
+复现版本：Android-2.8.29
+"""
+ERR_NAV_READASCIILINE = 'NAV-READASCIILINE'
+"""
+错误描述：原因未知。
+认定条件："tag":"L-get_navi-R", "meta":{"stacks":"...java.io.BufferedInputStream.streamClosed..."}
+复现版本：Android-2.8.29
+"""
+ERR_NAV_STREAMCLOSED = 'NAV-DNS-STREAMCLOSED'
+"""
 错误描述：导航地址 DNS 解析失败。
 认定条件："tag":"L-get_navi-R", "meta":{"ip":"null"}
 复现版本：Android-2.8.29
@@ -35,7 +59,7 @@ ERR_NAV_CON_TIMEOUT = 'NAV-CON-TIMEOUT'
 ERR_NAV_CON_FAILED = 'NAV-CON-FAILED'
 """
 错误描述：导航连接失败，原因未知。
-认定条件："tag":"L-get_navi-R", "meta":{"stacks":"...failed to connect to..."}
+认定条件："tag":"L-get_navi-R", "meta":{"stacks":"...Stream closed..."}
 复现版本：Android-2.8.29
 """
 ERR_NAV_STREAM_CLOSED = 'NAV-STREAM-CLOSED'

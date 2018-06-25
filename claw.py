@@ -1,3 +1,4 @@
+import datetime
 import getopt
 import json
 import os
@@ -14,8 +15,6 @@ KEY_SUCCESS = 'success'
 KEY_FAILED = 'failed'
 KEY_ERRCODE = 'errcode'
 KEY_EXTRA = 'extra'
-
-
 
 
 class Claw:
@@ -39,6 +38,11 @@ class Claw:
                 self.shell_paras['end'] = value
         self.shell_paras['dirs'] = args
 
+        # open log analysis result file.
+        self.fw = open('summary.txt', 'a+')
+        self.write_summary('\n')
+        self.write_summary((' log summary ' + datetime.datetime.now().strftime('%m-%d %H:%M:%S')).center(60, '-'))
+
         # whole log summary.
         self.logsum = {}
         self.logsum_platver = {}
@@ -54,28 +58,36 @@ class Claw:
         self.n = 0
         self.log = ''
 
+    def __del__(self):
+        self.fw.close()
+
     def start(self):
         for dirpath in self.shell_paras['dirs']:
             if os.path.isdir(dirpath):
                 self._parse_files(dirpath, os.listdir(dirpath))
             else:
                 print('warning: directory \'{0}\' is not exists'.format(dirpath))
+        print('info: analysis completed.')
+
+    def write_summary(self, str):
+        self.fw.write(str + '\n')
 
     def _parse_files(self, dirpath, files):
         logfiles = []
         for file in files:
             if self.shell_paras['appid'] in file:
                 logfiles.append(file)
-        sys.stdout.write('\rinfo: in directory \'{0}\' ... parsed 0 of {1} files.'.format(dirpath, len(logfiles)))
-        sys.stdout.flush()
-        for n, file in enumerate(logfiles):
-            filepath = dirpath + '/' + file
-            with open(filepath, 'r', encoding='utf-8') as f:
-                self._parse_lines(filepath, f.readlines())
-            sys.stdout.write('\rinfo: in directory \'{0}\' ... parsed {1} of {2} files.'
-                             .format(dirpath, n + 1, len(logfiles)))
-            sys.stdout.flush()
-        print()
+        if len(logfiles) == 0:
+            print('info: in directory {0} ... 0 of 0 files.'.format(dirpath))
+        else:
+            for n, file in enumerate(logfiles):
+                filepath = dirpath + '/' + file
+                sys.stdout.write('\rinfo: in directory {0} ... {1} of {2} files, parsing \'{3}\''
+                                 .format(dirpath, n + 1, len(logfiles), file))
+                sys.stdout.flush()
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    self._parse_lines(filepath, f.readlines())
+            print()
 
     def _parse_lines(self, filepath, lines):
         not_support = False
@@ -103,7 +115,6 @@ class Claw:
                 self._dump_sum_clean()
             except JSONDecodeError as err:
                 if laststop == self.n:
-                    self._debug_ouput()
                     self._skip_line(lines)
                 self._fix_invalid_return()
                 self._fix_lack_brace()
@@ -193,6 +204,12 @@ class Claw:
                         self._err_nav_handler(json_obj, errdef.ERR_NAV_STACKS_EMPTY)
                     elif json_obj['meta']['ip'] == 'null':
                         self._err_nav_handler(json_obj, errdef.ERR_NAV_DNS_FAILED)
+                    elif 'lang.NullPointerException' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_NULLPOINTER)
+                    elif 'libcore.io.Streams.readAsciiLine' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_READASCIILINE)
+                    elif 'java.io.BufferedInputStream.streamClosed' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_STREAMCLOSED)
                     elif 'Connection refused' in json_obj['meta']['stacks']:
                         self._err_nav_handler(json_obj, errdef.ERR_NAV_CON_REFUSED)
                     elif 'connect timed out' in json_obj['meta']['stacks']:
@@ -223,6 +240,8 @@ class Claw:
                         self._err_nav_handler(json_obj, errdef.ERR_NAV_CON_NETWORK_UNREACHABLE)
                     elif 'SocketTimeoutException: failed to connect to' in json_obj['meta']['stacks']:
                         self._err_nav_handler(json_obj, errdef.ERR_NAV_CON_NETWORK_UNREACHABLE)
+                    elif 'com.android.okhttp' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(json_obj, errdef.ERR_NAV_OKHTTP_CRASH)
                     else:
                         self._debug_ouput_raise()
                 else:
@@ -265,9 +284,11 @@ class Claw:
         """
         Bug原因：当写日志的 key 与 value 个数不匹配时，生成 json['meta'] 中的键值没有分配。
         修复前提：log 必须是有效的 json 串。
-        典型案例：log = '{..."meta":{"ptid":"19691-43738","code|duration|data|url|ip|stacks":"-1|2|http://navsg01-glb.ronghub.com/navi.xml|null|"}'
+        典型案例：log = '{..."meta":{"ptid":"19691-43738",
+                 "code|duration|data|url|ip|stacks":"-1|2|http://navsg01-glb.ronghub.com/navi.xml|null|"}'
         修复方案：根据已有案例，键混在一起的键值尽量匹配，重新组合。
-                 新的 log = '{..."meta":{"ptid":"19691-43738","code":-1,"duration":2,:"url":"http://navsg01-glb.ronghub.com/navi.xml","ip":"null","stacks":""}}'
+                 新的 log = '{..."meta":{"ptid":"19691-43738","code":-1,"duration":2,
+                 "url":"http://navsg01-glb.ronghub.com/navi.xml","ip":"null","stacks":""}}'
         :param json_obj: 可能有问题的 json 对象。
         :return: 修复后的有效 json 对象。
         """
@@ -296,37 +317,38 @@ class Claw:
             self.logabs_navi[KEY_EXTRA].append(err)
 
     def _skip_line(self, lines):
+        self._debug_ouput()
         self.skip_line = self.skip_line + 1
         self.n = self.n + 1
         self.log = lines[self.n - 1][:-1]
 
     def _debug_ouput(self):
         self.logsum['platver'] = self.logsum_platver
-        print('logsum = {0}'.format(self.logsum))
+        self.write_summary('logsum = {0}'.format(self.logsum))
         self.logabs['navi'] = self.logabs_navi
-        print('logabs = {0}'.format(self.logabs))
+        self.write_summary('logabs = {0}'.format(self.logabs))
         self.debug['n'] = self.n
         self.debug['log'] = self.log
-        print('debug = {0}'.format(self.debug))
+        self.write_summary('skip = {0}'.format(self.debug))
 
     def _debug_ouput_raise(self):
         self.logsum['platver'] = self.logsum_platver
-        print('logsum = {0}'.format(self.logsum))
+        self.write_summary('logsum = {0}'.format(self.logsum))
         self.logabs['navi'] = self.logabs_navi
-        print('logabs = {0}'.format(self.logabs))
+        self.write_summary('logabs = {0}'.format(self.logabs))
         self.debug['n'] = self.n
         self.debug['log'] = self.log
-        print('debug = {0}'.format(self.debug))
+        self.write_summary('debug = {0}'.format(self.debug))
         time.sleep(1)
         raise RuntimeError
 
     def output(self):
-        print('-'.center(60, '-'))
+        self.write_summary('-'.center(60, '-'))
         for err_exp in self.logerr_list:
-            print(err_exp)
+            self.write_summary(str(err_exp))
         self.logsum['platver'] = self.logsum_platver
         self.logsum['navi'] = self.logsum_navi
-        print('logsum = {0}'.format(self.logsum))
+        self.write_summary('logsum = {0}'.format(self.logsum))
 
 
 claw = Claw()
