@@ -15,6 +15,14 @@ KEY_SUCCESS = 'success'
 KEY_FAILED = 'failed'
 KEY_ERRCODE = 'errcode'
 KEY_EXTRA = 'extra'
+KEY_FILE = 'file'
+KEY_USERID = 'userid'
+KEY_PLATVER = 'platver'
+KEY_HANDLE_PLATVER = 'handle_platver'
+KEY_UNHANDLE_PLATVER = 'unhandle_platver'
+KEY_USERIP = 'userip'
+
+EVERY_LINES = 100000
 
 
 class Claw:
@@ -40,12 +48,12 @@ class Claw:
 
         # open log analysis result file.
         self.fw = open('summary.txt', 'a+')
-        self.write_summary('\n')
         self.write_summary((' log summary ' + datetime.datetime.now().strftime('%m-%d %H:%M:%S')).center(60, '-'))
 
         # whole log summary.
         self.logsum = {}
-        self.logsum_platver = {}
+        self.logsum_handle_platver = {}
+        self.logsum_unhandle_platver = {}
         self.logsum_navi = {KEY_REQ: 0, KEY_REP: 0, KEY_SUCCESS: 0, KEY_FAILED: 0, KEY_ERRCODE: {}}
         self.skip_line = 0
         # append every log abstract which enconter error, to show them all at then end.
@@ -82,21 +90,27 @@ class Claw:
         else:
             for n, file in enumerate(logfiles):
                 filepath = dirpath + '/' + file
-                sys.stdout.write('\rinfo: in directory {0} ... {1} of {2} files, parsing \'{3}\''
-                                 .format(dirpath, n + 1, len(logfiles), file))
-                sys.stdout.flush()
+                info = '\rinfo: in directory {0} ... {1} of {2} files, parsing \'{3}\'' \
+                    .format(dirpath, n + 1, len(logfiles), file)
                 with open(filepath, 'r', encoding='utf-8') as f:
-                    self._parse_lines(filepath, f.readlines())
+                    self._parse_lines(filepath, f.readlines(), info)
+                sys.stdout.write('\rinfo: in directory {0} ... {1} of {2} files'.format(dirpath, n + 1, len(logfiles)))
+                sys.stdout.flush()
             print()
 
-    def _parse_lines(self, filepath, lines):
+    def _parse_lines(self, filepath, lines, info):
         not_support = False
         start = 1
         laststop = 0
         while True:
             try:
                 # '+ 1' for matching the line number start form 1 not 0.
-                for self.n in range(start, len(lines) + 1):
+                total = len(lines)
+                for self.n in range(start, total + 1):
+                    if self.n % EVERY_LINES == 1:
+                        sys.stdout.write('{0} ... {1}00k of {2}00k lines.'
+                                         .format(info, int(self.n / EVERY_LINES), int(total / EVERY_LINES)))
+                        sys.stdout.flush()
                     # 'self.n == start and start != 1' means just recovered from exception, and 'log' has been fixed.
                     if self.n > start or start == 1:
                         # remove '\n' character at the end of log.
@@ -115,7 +129,7 @@ class Claw:
                 self._dump_sum_clean()
             except JSONDecodeError as err:
                 if laststop == self.n:
-                    self._skip_line(lines)
+                    self._skip_line_parallel_writing(lines)
                 self._fix_invalid_return()
                 self._fix_lack_brace()
                 self._fix_x00_x00(lines)
@@ -164,14 +178,21 @@ class Claw:
         self._dump_sum_clean()
         items = self.log.split(';;;')
         platver = items[4] + '-' + items[3]
-        self.logabs['file'] = filepath + ' +' + str(self.n)
-        self.logabs['userid'] = items[2]
-        self.logabs['platver'] = platver
-        self.logabs['userip'] = items[5]
-        if platver not in self.logsum_platver:
-            self.logsum_platver[platver] = 1
+        self.logabs[KEY_FILE] = filepath + ' +' + str(self.n)
+        self.logabs[KEY_USERID] = items[2]
+        self.logabs[KEY_PLATVER] = platver
+        self.logabs[KEY_USERIP] = items[5]
+        # add platver into handle or unhandle list.
+        if platver in self.support_list:
+            if platver not in self.logsum_handle_platver:
+                self.logsum_handle_platver[platver] = 1
+            else:
+                self.logsum_handle_platver[platver] = self.logsum_handle_platver[platver] + 1
         else:
-            self.logsum_platver[platver] = self.logsum_platver[platver] + 1
+            if platver not in self.logsum_unhandle_platver:
+                self.logsum_unhandle_platver[platver] = 1
+            else:
+                self.logsum_unhandle_platver[platver] = self.logsum_unhandle_platver[platver] + 1
         return platver not in self.support_list
 
     def _prolog_start(self, json_obj):
@@ -316,29 +337,28 @@ class Claw:
         if err not in self.logabs_navi[KEY_EXTRA]:
             self.logabs_navi[KEY_EXTRA].append(err)
 
-    def _skip_line(self, lines):
+    def _skip_line_parallel_writing(self, lines):
+        """
+        问题描述：部分版本存在日志并发写入的 bug。
+        处理方法：放弃这一行。
+        """
+        platver_list = ('Android-2.8.31')
         self._debug_ouput()
         self.skip_line = self.skip_line + 1
         self.n = self.n + 1
         self.log = lines[self.n - 1][:-1]
+        if self.logabs[KEY_PLATVER] not in platver_list:
+            raise RuntimeError
 
     def _debug_ouput(self):
-        self.logsum['platver'] = self.logsum_platver
-        self.write_summary('logsum = {0}'.format(self.logsum))
         self.logabs['navi'] = self.logabs_navi
         self.write_summary('logabs = {0}'.format(self.logabs))
         self.debug['n'] = self.n
         self.debug['log'] = self.log
-        self.write_summary('skip = {0}'.format(self.debug))
+        self.write_summary('error line = {0}'.format(self.debug))
 
     def _debug_ouput_raise(self):
-        self.logsum['platver'] = self.logsum_platver
-        self.write_summary('logsum = {0}'.format(self.logsum))
-        self.logabs['navi'] = self.logabs_navi
-        self.write_summary('logabs = {0}'.format(self.logabs))
-        self.debug['n'] = self.n
-        self.debug['log'] = self.log
-        self.write_summary('debug = {0}'.format(self.debug))
+        self._debug_ouput()
         time.sleep(1)
         raise RuntimeError
 
@@ -346,9 +366,10 @@ class Claw:
         self.write_summary('-'.center(60, '-'))
         for err_exp in self.logerr_list:
             self.write_summary(str(err_exp))
-        self.logsum['platver'] = self.logsum_platver
+        self.logsum[KEY_HANDLE_PLATVER] = self.logsum_handle_platver
+        self.logsum[KEY_UNHANDLE_PLATVER] = self.logsum_unhandle_platver
         self.logsum['navi'] = self.logsum_navi
-        self.write_summary('logsum = {0}'.format(self.logsum))
+        self.write_summary('logsum = {0}\n'.format(self.logsum))
 
 
 claw = Claw()
