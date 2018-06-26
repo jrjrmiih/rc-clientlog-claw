@@ -1,14 +1,13 @@
 import datetime
-import getopt
 import json
 import os
-# json keys.
 import re
 import sys
 import time
 from json import JSONDecodeError
 
 import errdef
+from boot import Boot
 
 KEY_REQ = 'req'
 KEY_REP = 'rep'
@@ -32,27 +31,11 @@ class Claw:
                     'Android-2.9.1')
 
     def __init__(self):
-        if len(sys.argv) == 1:
-            print('### Usage: python3 ./claw.py [--appid <app id>] [--start <start timestamp>]'
-                  ' [--end <end timestamp>] <directory ...> ###')
-            sys.exit(0)
-        # init shell parameters.
-        opts, args = getopt.getopt(sys.argv[1:], '', ['help', 'appid=', 'start=', 'end=', 'dirs='])
-        self.shell_paras = {}
-        for key, value in opts:
-            if key == '--appid':
-                self.shell_paras['appid'] = value
-            if key == '--match':
-                self.shell_paras['match'] = value
-            if key == '--start':
-                self.shell_paras['start'] = value
-            if key == '--end':
-                self.shell_paras['end'] = value
-        self.shell_paras['dirs'] = args
+        self.boot = Boot()
 
         # open log analysis result file.
         self.fw = open('summary.txt', 'a+')
-        self.write_summary((' log summary ' + datetime.datetime.now().strftime('%m-%d %H:%M:%S')).center(60, '-'))
+        self._write_summary((' log summary ' + datetime.datetime.now().strftime('%m-%d %H:%M:%S')).center(60, '-'))
 
         # whole log summary.
         self.logsum = {}
@@ -71,57 +54,37 @@ class Claw:
         self.fw.close()
 
     def start(self):
-        for dirpath in self.shell_paras['dirs']:
-            if os.path.isdir(dirpath):
-                self._parse_files(dirpath, os.listdir(dirpath))
-            else:
-                print('warning: directory \'{0}\' is not exists'.format(dirpath))
-        print('info: analysis completed.')
+        for n, filepath in enumerate(self.boot.logfiles):
+            startline = 1
+            if n == 0:
+                startline = self.boot.startline
+            self._parse_file(n + 1, len(self.boot.logfiles), filepath, startline)
 
-    def print_shell(self, str):
-        print('\r' + ''.center(120, ' '), end='')
-        print(str, end='')
+    def _parse_file(self, index, total, filepath, startline):
+        if os.path.isfile(filepath):
+            info = '\rinfo: parsing {0} of {1} file ... \'{2}\' ... {3}(00)k of {4}(00)k lines.'
+            with open(filepath, 'r', encoding='utf-8', errors="ignore") as f:
+                lines = f.readlines()
+                print(info.format(index, total, filepath, int(startline / EVERY_LINES),
+                                  int(len(lines) / EVERY_LINES)), end='', flush=True)
+                self._parse_lines(lines, startline, lambda n: print(
+                    info.format(index, total, filepath, int(n / EVERY_LINES),
+                                int(len(lines) / EVERY_LINES)), end='', flush=True))
+        else:
+            print('\rwarning: file \'{0}\' is not exists.'.format(filepath))
 
-    def write_summary(self, str):
+    def _write_summary(self, str):
         self.fw.write(str + '\n')
 
-    def _parse_files(self, dirpath, files):
-        logfiles = []
-        for file in files:
-            if self.shell_paras['appid'] in file:
-                logfiles.append(file)
-        if len(logfiles) == 0:
-            print('info: in directory {0} ... 0 of 0 files.'.format(dirpath))
-        else:
-            for n, file in enumerate(logfiles):
-                self.filepath = dirpath + '/' + file
-                info = '\rinfo: in directory {0} ... {1} of {2} files, parsing \'{3}\'' \
-                    .format(dirpath, n + 1, len(logfiles), file)
-                self.print_shell(info)
-                try:
-                    with open(self.filepath, 'r', encoding='utf-8') as f:
-                        self._parse_lines(f.readlines(), info)
-                except UnicodeDecodeError:
-                    continue
-                self.print_shell('\rinfo: in directory {0} ... {1} of {2} files.'.format(dirpath, n + 1, len(logfiles)))
-            print()
-
-    def _parse_lines(self, lines, shellinfo):
-        skip_line = False
+    def _parse_lines(self, lines, startline, callback):
         skip_file = False
-        start_line = 1
         while True:
             try:
                 # '+ 1' for matching the line number start form 1 not 0.
                 total = len(lines)
-                for self.n in range(start_line, total + 1):
+                for self.n in range(startline, total + 1):
                     if self.n % EVERY_LINES == 1:
-                        self.print_shell('{0} ... {1}00k of {2}00k lines.'
-                                         .format(shellinfo, int(self.n / EVERY_LINES), int(total / EVERY_LINES)))
-                    if skip_line:
-                        skip_line = False
-                        continue
-
+                        callback(self.n)
                     self.log = lines[self.n - 1][:-1]
                     if self.log.startswith('fileName'):
                         skip_file = self._prolog_filename()
@@ -138,16 +101,15 @@ class Claw:
                 if self._skip_file_zd_x00_x00() or \
                         self._skip_file_unicode_encode_err():
                     skip_file = True
-                    start_line = self.n + 1
+                    startline = self.n + 1
                     continue
                 elif self._skip_line_zd_last_breaking() or \
                         self._skip_line_parallel_writing():
-                    skip_line = True
-                    start_line = self.n + 1
+                    startline = self.n + 1
                     continue
                 elif self._fix_invalid_return() or \
                         self._fix_lack_brace():
-                    start_line = self.n
+                    startline = self.n
                     continue
                 else:
                     self._debug_ouput_raise()
@@ -417,21 +379,21 @@ class Claw:
     def _debug_err_info(self, errname, infodict):
         errdict = {KEY_FILELINE: self.filepath + ' +' + str(self.n), KEY_PLATVER: self.logabs[KEY_PLATVER],
                    KEY_EXTRA: infodict}
-        self.write_summary('{0} = {1}'.format(errname, errdict))
+        self._write_summary('{0} = {1}'.format(errname, errdict))
 
     def _debug_ouput_raise(self):
         errdict = {KEY_FILELINE: self.filepath + ' +' + str(self.n), KEY_PLATVER: self.logabs[KEY_PLATVER],
                    KEY_EXTRA: self.log}
-        self.write_summary('error line = {0}'.format(errdict))
+        self._write_summary('error line = {0}'.format(errdict))
         time.sleep(1)
         raise RuntimeError
 
     def output(self):
-        self.write_summary('-'.center(60, '-'))
+        self._write_summary('-'.center(60, '-'))
         self.logsum[KEY_HANDLE_PLATVER] = self.logsum_handle_platver
         self.logsum[KEY_UNHANDLE_PLATVER] = self.logsum_unhandle_platver
         self.logsum['navi'] = self.logsum_navi
-        self.write_summary('logsum = {0}\n'.format(self.logsum))
+        self._write_summary('logsum = {0}\n'.format(self.logsum))
 
 
 claw = Claw()
