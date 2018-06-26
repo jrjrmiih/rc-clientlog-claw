@@ -120,3 +120,9 @@ ERR_NAV_SOCKET_NETWORK_UNREACHABLE = 'NAV-SOCKET-NETWORK-UNREACHABLE'
 复现版本：Android-2.8.29
 """
 ERR_NAV_CON_NETWORK_UNREACHABLE = 'NAV-CON-NETWORK-UNREACHABLE'
+"""
+错误描述：数字转换格式错误。
+认定条件："tag":"L-get_navi-R", "meta":{"stacks":"...java.lang.NumberFormatException..."}
+复现版本：Android-2.8.31
+"""
+ERR_NAV_NUMBER_FORMAT_EXCEPTION = 'NAV-NUMBER-FORMAT-EXCEPTION'

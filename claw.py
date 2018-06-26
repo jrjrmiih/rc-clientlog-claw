@@ -42,6 +42,8 @@ class Claw:
         for key, value in opts:
             if key == '--appid':
                 self.shell_paras['appid'] = value
+            if key == '--match':
+                self.shell_paras['match'] = value
             if key == '--start':
                 self.shell_paras['start'] = value
             if key == '--end':
@@ -281,6 +283,8 @@ class Claw:
                         self._err_nav_handler(errdef.ERR_NAV_CON_NETWORK_UNREACHABLE)
                     elif 'SocketTimeoutException: failed to connect to' in json_obj['meta']['stacks']:
                         self._err_nav_handler(errdef.ERR_NAV_CON_NETWORK_UNREACHABLE)
+                    elif 'java.lang.NumberFormatException' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(errdef.ERR_NAV_NUMBER_FORMAT_EXCEPTION)
                     elif 'com.android.okhttp' in json_obj['meta']['stacks']:
                         self._err_nav_handler(errdef.ERR_NAV_OKHTTP_CRASH)
                     else:
