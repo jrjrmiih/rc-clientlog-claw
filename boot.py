@@ -15,11 +15,11 @@ class Boot:
             sys.exit(0)
 
         # init shell parameters.
-        self.params = {'resume': False, 'appid': '', 'hour': '', 'start': '', 'end': '', 'dirs': []}
-        opts, args = getopt.getopt(sys.argv[1:], '', ['resume', 'appid=', 'hour=', 'start=', 'end=', 'dirs='])
+        self.params = {'debug': False, 'appid': '', 'hour': '', 'start': '', 'end': '', 'dirs': []}
+        opts, args = getopt.getopt(sys.argv[1:], 'd', ['appid=', 'hour=', 'start=', 'end=', 'dirs='])
         for key, value in opts:
-            if key == '--resume':
-                self.params['resume'] = True
+            if key == '-d':
+                self.params['debug'] = True
             if key == '--appid':
                 self.params['appid'] = value
             if key == '--hour':
@@ -29,16 +29,19 @@ class Boot:
             if key == '--end':
                 self.params['end'] = value
         self.params['dirs'] = args
-
-        if not self.params['resume']:
-            self._init_bootfile()
-        self.startline = 1
-        self.logfiles = []
-        self._list_logfiles()
+        self._init_bootfile()
 
     def _init_bootfile(self):
+        if os.path.isfile(BOOT_FILE):
+            with open(BOOT_FILE, 'r', encoding='utf-8') as f:
+                params = f.readline().strip()
+                if params == self.params.__str__():
+                    branch = input('info: found unfinished job，continue? [y/n] ').lower()
+                    if branch == 'y':
+                        return
         filter = self.params['appid'] + '_' + self.params['hour']
         with open(BOOT_FILE, 'w', encoding='utf-8') as f:
+            f.write(self.params.__str__() + '\n')
             for dir in self.params['dirs']:
                 if os.path.isdir(dir):
                     filelist = []
@@ -51,14 +54,35 @@ class Boot:
                 else:
                     print('warning: directory \'{0}\' is not exists'.format(dir))
 
-    def _list_logfiles(self):
+    def get_logfiles_startline(self):
+        logfiles = []
+        startline = 1
         with open(BOOT_FILE, 'r', encoding='utf-8') as f:
+            f.readline()
             lines = f.readlines()
             for line in lines:
                 if not line.startswith('* '):
                     line = line.strip()
                     pos = line.rfind('+')
                     if pos > 0:
-                        self.startline = int(line[pos + 1:])
+                        startline = int(line[pos + 1:])
                         line = line[0:pos - 1]
-                    self.logfiles.append(line)
+                    logfiles.append(line)
+        return logfiles, startline
+
+    def stop_parsing(self, filepath, linenum):
+        with open(BOOT_FILE, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        with open(BOOT_FILE, 'w', encoding='utf-8') as fw:
+            found = False
+            for line in lines:
+                if line.startswith('{') or line.startswith('* '):
+                    fw.write(line)
+                elif not found:
+                    if line.startswith(filepath):
+                        fw.write(filepath + ' +' + str(linenum) + '\n')
+                        found = True
+                    else:
+                        fw.write('* ' + line)
+                else:
+                    fw.write(line)

@@ -51,27 +51,30 @@ class Claw:
         self.log = ''
 
     def __del__(self):
-        self.fw.close()
+        if hasattr(self, 'fw'):
+            self.fw.close()
 
     def start(self):
-        for n, filepath in enumerate(self.boot.logfiles):
-            startline = 1
+        logfiles, startline = self.boot.get_logfiles_startline()
+        for n, filepath in enumerate(logfiles):
+            self.filepath = filepath
             if n == 0:
-                startline = self.boot.startline
-            self._parse_file(n + 1, len(self.boot.logfiles), filepath, startline)
+                self._parse_file(n + 1, len(logfiles), startline)
+            else:
+                self._parse_file(n + 1, len(logfiles), 1)
 
-    def _parse_file(self, index, total, filepath, startline):
-        if os.path.isfile(filepath):
-            info = '\rinfo: parsing {0} of {1} file ... \'{2}\' ... {3}(00)k of {4}(00)k lines.'
-            with open(filepath, 'r', encoding='utf-8', errors="ignore") as f:
+    def _parse_file(self, index, total, startline):
+        if os.path.isfile(self.filepath):
+            info = '\rinfo: parsing {0} of {1} file ... \'{2}\' ... {3} of {4} * 100k lines.'
+            with open(self.filepath, 'r', encoding='utf-8', errors="ignore") as f:
                 lines = f.readlines()
-                print(info.format(index, total, filepath, int(startline / EVERY_LINES),
+                print(info.format(index, total, self.filepath, int(startline / EVERY_LINES),
                                   int(len(lines) / EVERY_LINES)), end='', flush=True)
                 self._parse_lines(lines, startline, lambda n: print(
-                    info.format(index, total, filepath, int(n / EVERY_LINES),
+                    info.format(index, total, self.filepath, int(n / EVERY_LINES),
                                 int(len(lines) / EVERY_LINES)), end='', flush=True))
         else:
-            print('\rwarning: file \'{0}\' is not exists.'.format(filepath))
+            print('\rwarning: file \'{0}\' is not exists.'.format(self.filepath))
 
     def _write_summary(self, str):
         self.fw.write(str + '\n')
@@ -85,7 +88,7 @@ class Claw:
                 for self.n in range(startline, total + 1):
                     if self.n % EVERY_LINES == 1:
                         callback(self.n)
-                    self.log = lines[self.n - 1][:-1]
+                    self.log = lines[self.n - 1].strip()
                     if self.log.startswith('fileName'):
                         skip_file = self._prolog_filename()
                     elif skip_file:
@@ -93,8 +96,7 @@ class Claw:
                     elif self.log != '':
                         json_obj = json.loads(self.log)
                         json_obj = self._fix_kv_unpaired(json_obj)
-                        if self._prolog_start(json_obj) or \
-                                self._prolog_navi(json_obj):
+                        if self._prolog_navi(json_obj):
                             continue
                 self._dump_sum_clean()
             except JSONDecodeError as err:
@@ -112,11 +114,11 @@ class Claw:
                     startline = self.n
                     continue
                 else:
-                    self._debug_ouput_raise()
+                    self._raise_runtime_error('JSONDecodeError')
             except RuntimeError as err:
                 sys.exit(-1)
             except Exception:
-                self._debug_ouput_raise()
+                self._raise_runtime_error('Exception')
                 sys.exit(-1)
             break
 
@@ -162,7 +164,7 @@ class Claw:
         self._dump_sum_clean()
         items = self.log.split(';;;')
         platver = items[4] + '-' + items[3]
-        self.logabs[KEY_FILELINE] = self.filepath + ' +' + str(self.n)
+        self.logabs[KEY_LINENUM] = self.n
         self.logabs[KEY_USERID] = items[2]
         self.logabs[KEY_PLATVER] = platver
         self.logabs[KEY_USERIP] = items[5]
@@ -178,17 +180,6 @@ class Claw:
             else:
                 self.logsum_unhandle_platver[platver] = self.logsum_unhandle_platver[platver] + 1
         return platver not in self.support_list
-
-    def _prolog_start(self, json_obj):
-        """
-        process log(prolog), which is the first log after app start.
-        :param json_obj: json object of the single log line.
-        :return: 'True' if the log is handled.
-        """
-        if json_obj['tag'] == 'Log_Opened':
-            self._dump_sum_clean()
-            return True
-        return False
 
     def _prolog_navi(self, json_obj):
         """
@@ -249,8 +240,10 @@ class Claw:
                         self._err_nav_handler(errdef.ERR_NAV_NUMBER_FORMAT_EXCEPTION)
                     elif 'com.android.okhttp' in json_obj['meta']['stacks']:
                         self._err_nav_handler(errdef.ERR_NAV_OKHTTP_CRASH)
+                    elif 'java.net.ProtocolException: Too many redirects' in json_obj['meta']['stacks']:
+                        self._err_nav_handler(errdef.ERR_NAV_PROTOCOL_TOO_MANY_REDIRECTS)
                     else:
-                        self._debug_ouput_raise()
+                        self._raise_runtime_error('navi')
                 else:
                     self._err_nav_handler(str(json_obj['meta']['code']))
 
@@ -355,7 +348,7 @@ class Claw:
                 self.log.startswith('{"tim{"time"') or \
                 self.log.startswith('{"time{"time"') or self.log.count('{"time"') == 2:
             if self.logabs[KEY_PLATVER] not in target_platvers:
-                self._debug_ouput_raise()
+                self._raise_runtime_error()
             self._debug_err_info(sys._getframe().f_code.co_name, '')
             return True
         return False
@@ -371,21 +364,25 @@ class Claw:
         match = re.search('}}$', self.log)
         if match is None:
             if self.logabs[KEY_PLATVER] not in target_platvers:
-                self._debug_ouput_raise()
+                self._raise_runtime_error()
             self._debug_err_info(sys._getframe().f_code.co_name, '')
             return True
         return False
 
     def _debug_err_info(self, errname, infodict):
-        errdict = {KEY_FILELINE: self.filepath + ' +' + str(self.n), KEY_PLATVER: self.logabs[KEY_PLATVER],
-                   KEY_EXTRA: infodict}
-        self._write_summary('{0} = {1}'.format(errname, errdict))
+        if self.boot.params['debug']:
+            errdict = {KEY_FILELINE: self.filepath + ' +' + str(self.n), KEY_PLATVER: self.logabs[KEY_PLATVER],
+                       KEY_EXTRA: infodict}
+            self._write_summary('debug = {0}: {1}'.format(errname, errdict))
 
-    def _debug_ouput_raise(self):
+    def _raise_runtime_error(self, info=''):
         errdict = {KEY_FILELINE: self.filepath + ' +' + str(self.n), KEY_PLATVER: self.logabs[KEY_PLATVER],
                    KEY_EXTRA: self.log}
-        self._write_summary('error line = {0}'.format(errdict))
+        self._write_summary('runtime error = {0}'.format(errdict))
+        self.output()
+        self.boot.stop_parsing(self.filepath, self.logabs[KEY_LINENUM])
         time.sleep(1)
+        print('\nraise: ' + info)
         raise RuntimeError
 
     def output(self):

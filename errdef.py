@@ -126,3 +126,9 @@ ERR_NAV_CON_NETWORK_UNREACHABLE = 'NAV-CON-NETWORK-UNREACHABLE'
 复现版本：Android-2.8.31
 """
 ERR_NAV_NUMBER_FORMAT_EXCEPTION = 'NAV-NUMBER-FORMAT-EXCEPTION'
+"""
+错误描述：原因未知。
+认定条件："tag":"L-get_navi-R", "meta":{"stacks":"...java.net.ProtocolException: Too many redirects..."}
+复现版本：Android-2.8.31
+"""
+ERR_NAV_PROTOCOL_TOO_MANY_REDIRECTS = 'NAV-PROTOCOL-TOO-MANY-REDIRECTS'
