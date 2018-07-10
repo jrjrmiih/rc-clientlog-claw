@@ -68,11 +68,14 @@ class Claw:
                     else:
                         json_obj = json.loads(self.log)
                         json_obj = self._fix_kv_unpaired(json_obj)
-                        if self._prolog_navi(json_obj):
+                        if self._prolog_init(json_obj):
+                            continue
+                        elif self._prolog_navi(json_obj):
                             continue
                         elif self._prolog_netstate(json_obj):
                             continue
-                self.sum.flush(self.entity)
+                        elif self._prolog_cmp(json_obj):
+                            continue
             except ValueError:
                 if self._skip_file_zd_x00_x00() or \
                         self._skip_file_unicode_encode_err():
@@ -112,6 +115,18 @@ class Claw:
             self.entity.navi[ckey.REP] = self.entity.navi[ckey.REQ]
             self.entity.navi[ckey.SUCCESS] = self.entity.navi[ckey.REQ] - self.entity.navi[ckey.FAILED]
 
+    def _prolog_init(self, json_obj):
+        """
+        process log(prolog), which belongs to init.
+        :param json_obj: json object of the single log line.
+        :return: 'True' if the log is handled.
+        """
+        if json_obj['tag'] == 'A-init-O':
+            self.entity.init()
+        else:
+            return False
+        return True
+
     def _prolog_navi(self, json_obj):
         """
         process log(prolog), which belongs to navi.
@@ -122,6 +137,9 @@ class Claw:
             self.entity.navi_get()
         elif json_obj['tag'] == 'L-get_navi-R':
             self.entity.navi_got(json_obj)
+        else:
+            return False
+        return True
 
     def _prolog_netstate(self, json_obj):
         """
@@ -131,17 +149,39 @@ class Claw:
         """
         if json_obj['tag'] == 'L-network_changed-S':
             if not json_obj['meta']['available']:
-                self.entity.abs[ckey.NETSTATE] = ckey.NET_NONE
+                self.entity.netstate = ckey.NET_NONE
             elif json_obj['meta']['network'] == 'WIFI':
-                self.entity.abs[ckey.NETSTATE] = ckey.NET_WIFI
+                self.entity.netstate = ckey.NET_WIFI
             elif json_obj['meta']['network'] == '4G':
-                self.entity.abs[ckey.NETSTATE] = ckey.NET_4G
+                self.entity.netstate = ckey.NET_4G
             elif json_obj['meta']['network'] == '3G':
-                self.entity.abs[ckey.NETSTATE] = ckey.NET_3G
+                self.entity.netstate = ckey.NET_3G
             elif json_obj['meta']['network'] == '2G':
-                self.entity.abs[ckey.NETSTATE] = ckey.NET_2G
+                self.entity.netstate = ckey.NET_2G
             else:
-                self.entity.abs[ckey.NETSTATE] = ckey.NET_UNKNOWN
+                self.entity.netstate = ckey.NET_UNKNOWN
+            return True
+        return False
+
+    def _prolog_cmp(self, json_obj):
+        """
+        process log(prolog), which belongs to connect cmp.
+        :param json_obj: json object of the single log line.
+        :return: 'True' if the log is handled.
+        """
+        if json_obj['tag'] == 'A-connect-T':
+            self.entity.cmp_aget()
+        elif json_obj['tag'] == 'P-connect-T':
+            self.entity.cmp_pget()
+        elif json_obj['tag'] == 'P-connect-S':
+            self.entity.cmp_state()
+        elif json_obj['tag'] == 'P-connect-R':
+            self.entity.cmp_pgot()
+        elif json_obj['tag'] == 'A-connect-R':
+            self.entity.cmp_agot()
+        else:
+            return False
+        return True
 
     def _fix_lack_brace(self):
         """

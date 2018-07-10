@@ -6,14 +6,25 @@ import errdef
 
 class Entity:
     states = [
-         'start', {'name': 'navi', 'children': ['get', 'got', 'decode']}, 'end'
+        'start',
+        'init',
+        {'name': 'navi', 'children': ['get', 'got', 'decode']},
+        {'name': 'cmp', 'children': ['aget', 'pget', 'state', 'pgot', 'agot']},
+        'end'
     ]
+
     transitions = [
         {'trigger': 'start', 'source': '*', 'dest': 'start', 'before': '_before_start'},
+        ['init', '*', 'init'],
         {'trigger': 'navi_get', 'source': '*', 'dest': 'navi_get', 'before': '_before_navi_get'},
         {'trigger': 'navi_got', 'source': '*', 'dest': 'navi_got', 'before': '_before_navi_got'},
         ['navi_decode', '*', 'navi_decode'],
         ['crash', 'navi', 'navi_got'],
+        ['cmp_aget', '*', 'cmp_aget'],
+        ['cmp_pget', '*', 'cmp_pget'],
+        ['cmp_state', '*', 'cmp_state'],
+        ['cmp_pgot', '*', 'cmp_pgot'],
+        ['cmp_agot', '*', 'cmp_agot'],
         ['end', '*', 'end']
     ]
 
@@ -21,21 +32,30 @@ class Entity:
         self.claw = claw
         self.machine = Machine(model=self, states=Entity.states, transitions=Entity.transitions, send_event=True)
         # abstract info.
-        self.abs = {}
+        self._init_state()
         self._init_navi()
+        self.abs = {}
+
+    def _init_state(self):
+        self.has_init = False
+        self.netstate = ckey.NET_UNKNOWN
 
     def _init_navi(self):
         self.navi = {ckey.REQ: 0, ckey.REP: 0, ckey.SUCCESS: 0, ckey.FAILED: 0, ckey.ERRCODE: {}}
 
     def _before_start(self, event):
+        self._init_state()
+        self._init_navi()
+
         items = event.args[1].split(';;;')
         self.abs[ckey.STARTLINE] = event.args[0]
         self.abs[ckey.USERID] = items[2]
         self.abs[ckey.PLATVER] = items[4] + '-' + items[3]
         self.abs[ckey.USERIP] = items[5]
         self.abs[ckey.SUPPORT] = self.abs[ckey.PLATVER] in self.claw.support_list
-        self.abs[ckey.NETSTATE] = ckey.NET_UNKNOWN
-        self._init_navi()
+
+    def on_enter_init(self, event):
+        self.has_init = True
 
     def _before_navi_get(self, event):
         self.navi[ckey.REQ] = self.navi[ckey.REQ] + 1

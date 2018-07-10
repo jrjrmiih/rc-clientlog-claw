@@ -9,7 +9,6 @@ PLATVER = 'platver'
 USERID = 'userid'
 USERIP = 'userip'
 SUPPORT = 'support'
-NETSTATE = 'netstate'
 
 REQ = 'req'
 REP = 'rep'
