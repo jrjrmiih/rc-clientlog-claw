@@ -8,6 +8,7 @@ import ckey
 from boot import Boot
 from entity import Entity
 from sum import Sum
+from tools import Tools
 from writer import Writer
 
 EVERY_LINES = 100000
@@ -19,12 +20,13 @@ class Claw:
 
     def __init__(self):
         self.boot = Boot()
-        self.sum = Sum()
+        self.sum = Sum(self)
         self.entity = Entity(self)
         self.writer = Writer()
 
         # debug info.
         self.filepath = ''
+        self.appid = self.boot.params['appid']
         self.n = 0
         self.log = ''
 
@@ -59,10 +61,15 @@ class Claw:
                         callback(self.n)
                     self.log = lines[self.n - 1].strip()
                     if self.log.startswith('fileName'):
-                        self.entity.start(self.n, self.log)
+                        starttime = Tools.get_timestr(lines[self.n].strip())
+                        self.entity.start(self.n, self.log, starttime)
                     elif self.log == '':
-                        self.entity.end()
+                        endtime = Tools.get_timestr(lines[self.n - 2].strip())
+                        self.entity.end(endtime)
                         self.sum.flush(self.entity)
+                        if self.entity.abs[ckey.SUPPORT]:
+                            self.sum.insert_db(self.entity)
+                        self.entity.init_all()
                     elif not self.entity.abs[ckey.SUPPORT]:
                         continue
                     else:

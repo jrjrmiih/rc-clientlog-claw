@@ -32,6 +32,9 @@ class Entity:
         self.claw = claw
         self.machine = Machine(model=self, states=Entity.states, transitions=Entity.transitions, send_event=True)
         # abstract info.
+        self.init_all()
+
+    def init_all(self):
         self._init_state()
         self._init_navi()
         self.abs = {}
@@ -53,6 +56,7 @@ class Entity:
         self.abs[ckey.PLATVER] = items[4] + '-' + items[3]
         self.abs[ckey.USERIP] = items[5]
         self.abs[ckey.SUPPORT] = self.abs[ckey.PLATVER] in self.claw.support_list
+        self.abs[ckey.STARTTIME] = event.args[2]
 
     def on_enter_init(self, event):
         self.has_init = True
@@ -118,6 +122,9 @@ class Entity:
                     self._raise_runtime_error()
             else:
                 self._err_nav_handler(str(json_obj['meta']['code']))
+
+    def on_enter_end(self, event):
+        self.abs[ckey.ENDTIME] = event.args[0]
 
     def _err_nav_handler(self, errtype):
         self.navi[ckey.ERRCODE][errtype] = \

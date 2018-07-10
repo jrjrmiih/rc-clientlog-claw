@@ -9,6 +9,8 @@ PLATVER = 'platver'
 USERID = 'userid'
 USERIP = 'userip'
 SUPPORT = 'support'
+STARTTIME = 'starttime'
+ENDTIME = 'endtime'
 
 REQ = 'req'
 REP = 'rep'
