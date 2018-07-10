@@ -43,6 +43,8 @@ class Boot:
         with open(BOOT_FILE, 'w', encoding='utf-8') as f:
             f.write(self.params.__str__() + '\n')
             for dir in self.params['dirs']:
+                if dir.endswith('/'):
+                    dir = dir[:-1]
                 if os.path.isdir(dir):
                     filelist = []
                     for filepath in os.listdir(dir):
@@ -55,6 +57,9 @@ class Boot:
                     print('warning: directory \'{0}\' is not exists'.format(dir))
 
     def get_logfiles_startline(self):
+        """
+        get last breaking log file, and line num.
+        """
         logfiles = []
         startline = 1
         with open(BOOT_FILE, 'r', encoding='utf-8') as f:
@@ -86,3 +91,6 @@ class Boot:
                         fw.write('* ' + line)
                 else:
                     fw.write(line)
+
+    def finish_parsing(self):
+        os.remove(BOOT_FILE)

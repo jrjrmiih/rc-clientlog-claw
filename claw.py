@@ -1,67 +1,40 @@
-import datetime
 import json
 import os
 import re
 import sys
 import time
-from json import JSONDecodeError
 
-import errdef
+import ckey
 from boot import Boot
-
-KEY_REQ = 'req'
-KEY_REP = 'rep'
-KEY_SUCCESS = 'success'
-KEY_FAILED = 'failed'
-KEY_ERRCODE = 'errcode'
-KEY_EXTRA = 'extra'
-KEY_FILELINE = 'fileline'
-KEY_LINENUM = 'linenum'
-KEY_USERID = 'userid'
-KEY_PLATVER = 'platver'
-KEY_HANDLE_PLATVER = 'handle_platver'
-KEY_UNHANDLE_PLATVER = 'unhandle_platver'
-KEY_USERIP = 'userip'
+from entity import Entity
+from sum import Sum
+from writer import Writer
 
 EVERY_LINES = 100000
 
 
 class Claw:
     support_list = ('Android-2.8.29', 'Android-2.8.30', 'Android-2.8.31', 'Android-2.8.32', 'Android-2.9.0',
-                    'Android-2.9.1')
+                    'Android-2.9.1', 'Android-2.9.2')
 
     def __init__(self):
         self.boot = Boot()
-
-        # open log analysis result file.
-        self.fw = open('summary.txt', 'a+')
-        self._write_summary((' log summary ' + datetime.datetime.now().strftime('%m-%d %H:%M:%S')).center(60, '-'))
-
-        # whole log summary.
-        self.logsum = {}
-        self.logsum_handle_platver = {}
-        self.logsum_unhandle_platver = {}
-        self.logsum_navi = {KEY_REQ: 0, KEY_REP: 0, KEY_SUCCESS: 0, KEY_FAILED: 0, KEY_ERRCODE: {}}
-        # single log abstract.
-        self._init_logabs()
+        self.sum = Sum()
+        self.entity = Entity(self)
+        self.writer = Writer()
 
         # debug info.
         self.filepath = ''
         self.n = 0
         self.log = ''
 
-    def __del__(self):
-        if hasattr(self, 'fw'):
-            self.fw.close()
-
     def start(self):
         logfiles, startline = self.boot.get_logfiles_startline()
         for n, filepath in enumerate(logfiles):
             self.filepath = filepath
-            if n == 0:
-                self._parse_file(n + 1, len(logfiles), startline)
-            else:
-                self._parse_file(n + 1, len(logfiles), 1)
+            self._parse_file(n + 1, len(logfiles), startline if n == 0 else 1)
+        self.boot.finish_parsing()
+        print()
 
     def _parse_file(self, index, total, startline):
         if os.path.isfile(self.filepath):
@@ -76,33 +49,33 @@ class Claw:
         else:
             print('\rwarning: file \'{0}\' is not exists.'.format(self.filepath))
 
-    def _write_summary(self, str):
-        self.fw.write(str + '\n')
-
     def _parse_lines(self, lines, startline, callback):
-        skip_file = False
         while True:
             try:
                 # '+ 1' for matching the line number start form 1 not 0.
                 total = len(lines)
                 for self.n in range(startline, total + 1):
-                    if self.n % EVERY_LINES == 1:
+                    if self.n % EVERY_LINES == 0:
                         callback(self.n)
                     self.log = lines[self.n - 1].strip()
                     if self.log.startswith('fileName'):
-                        skip_file = self._prolog_filename()
-                    elif skip_file:
+                        self.entity.start(self.n, self.log)
+                    elif self.log == '':
+                        self.entity.end()
+                        self.sum.flush(self.entity)
+                    elif not self.entity.abs[ckey.SUPPORT]:
                         continue
-                    elif self.log != '':
+                    else:
                         json_obj = json.loads(self.log)
                         json_obj = self._fix_kv_unpaired(json_obj)
                         if self._prolog_navi(json_obj):
                             continue
-                self._dump_sum_clean()
-            except JSONDecodeError as err:
+                        elif self._prolog_netstate(json_obj):
+                            continue
+                self.sum.flush(self.entity)
+            except ValueError:
                 if self._skip_file_zd_x00_x00() or \
                         self._skip_file_unicode_encode_err():
-                    skip_file = True
                     startline = self.n + 1
                     continue
                 elif self._skip_line_zd_last_breaking() or \
@@ -114,11 +87,9 @@ class Claw:
                     startline = self.n
                     continue
                 else:
-                    self._raise_runtime_error('JSONDecodeError')
-            except RuntimeError as err:
-                sys.exit(-1)
+                    self.raise_runtime_err()
             except Exception:
-                self._raise_runtime_error('Exception')
+                self.raise_runtime_err()
                 sys.exit(-1)
             break
 
@@ -127,125 +98,50 @@ class Claw:
         dump the abstract of a single log to database, sum data, and clean.
         """
         # dump
-        self._fix_get_navi_no_r()
-        # sum
-        self.logsum_navi[KEY_REQ] = self.logsum_navi[KEY_REQ] + self.logabs_navi[KEY_REQ]
-        self.logsum_navi[KEY_REP] = self.logsum_navi[KEY_REP] + self.logabs_navi[KEY_REP]
-        self.logsum_navi[KEY_SUCCESS] = self.logsum_navi[KEY_SUCCESS] + self.logabs_navi[KEY_SUCCESS]
-        self.logsum_navi[KEY_FAILED] = self.logsum_navi[KEY_FAILED] + self.logabs_navi[KEY_FAILED]
-        for key, value in self.logabs_navi[KEY_ERRCODE].items():
-            if key not in self.logsum_navi[KEY_ERRCODE]:
-                self.logsum_navi[KEY_ERRCODE][key] = value
-            else:
-                self.logsum_navi[KEY_ERRCODE][key] = self.logsum_navi[KEY_ERRCODE][key] + value
+        self._fix_get_navi_no_rep()
         # clean
-        self._init_logabs()
+        self.entity.reset()
 
-    def _fix_get_navi_no_r(self):
+    def _fix_get_navi_no_rep(self):
         """
         Bug原因：部分版本，取导航成功时没有打印 'L-get_navi-R'。
         修复方案：如果没有 'L-get_navi-R'，则默认取导航成功。
         """
         target_platver = ('Android-2.8.30', 'Android-2.8.31')
-        if self.logabs[KEY_PLATVER] in target_platver:
-            self.logabs_navi[KEY_REP] = self.logabs_navi[KEY_REQ]
-            self.logabs_navi[KEY_SUCCESS] = self.logabs_navi[KEY_REQ] - self.logabs_navi[KEY_FAILED]
-
-    def _init_logabs(self):
-        self.logabs = {KEY_PLATVER: ''}
-        self.logabs_navi = {KEY_REQ: 0, KEY_REP: 0, KEY_SUCCESS: 0, KEY_FAILED: 0, KEY_ERRCODE: {}, KEY_EXTRA: []}
-
-    def _prolog_filename(self):
-        """
-        process log(prolog), which is the filename part.
-        :param log: the single log line.
-        :return: 'True' if the log is handled.
-        """
-        self._dump_sum_clean()
-        items = self.log.split(';;;')
-        platver = items[4] + '-' + items[3]
-        self.logabs[KEY_LINENUM] = self.n
-        self.logabs[KEY_USERID] = items[2]
-        self.logabs[KEY_PLATVER] = platver
-        self.logabs[KEY_USERIP] = items[5]
-        # add platver into handle or unhandle list.
-        if platver in self.support_list:
-            if platver not in self.logsum_handle_platver:
-                self.logsum_handle_platver[platver] = 1
-            else:
-                self.logsum_handle_platver[platver] = self.logsum_handle_platver[platver] + 1
-        else:
-            if platver not in self.logsum_unhandle_platver:
-                self.logsum_unhandle_platver[platver] = 1
-            else:
-                self.logsum_unhandle_platver[platver] = self.logsum_unhandle_platver[platver] + 1
-        return platver not in self.support_list
+        if self.entity.abs[ckey.PLATVER] in target_platver:
+            self.entity.navi[ckey.REP] = self.entity.navi[ckey.REQ]
+            self.entity.navi[ckey.SUCCESS] = self.entity.navi[ckey.REQ] - self.entity.navi[ckey.FAILED]
 
     def _prolog_navi(self, json_obj):
         """
-        process log(prolog), which belongs navi log.
+        process log(prolog), which belongs to navi.
         :param json_obj: json object of the single log line.
         :return: 'True' if the log is handled.
         """
         if json_obj['tag'] == 'L-get_navi-T':
-            self.logabs_navi[KEY_REQ] = self.logabs_navi[KEY_REQ] + 1
+            self.entity.navi_get()
         elif json_obj['tag'] == 'L-get_navi-R':
-            self.logabs_navi[KEY_REP] = self.logabs_navi[KEY_REP] + 1
-            if json_obj['meta']['code'] == 200:
-                self.logabs_navi[KEY_SUCCESS] = self.logabs_navi[KEY_SUCCESS] + 1
+            self.entity.navi_got(json_obj)
+
+    def _prolog_netstate(self, json_obj):
+        """
+        process log(prolog), which belongs to net state.
+        :param json_obj: json object of the single log line.
+        :return: 'True' if the log is handled.
+        """
+        if json_obj['tag'] == 'L-network_changed-S':
+            if not json_obj['meta']['available']:
+                self.entity.abs[ckey.NETSTATE] = ckey.NET_NONE
+            elif json_obj['meta']['network'] == 'WIFI':
+                self.entity.abs[ckey.NETSTATE] = ckey.NET_WIFI
+            elif json_obj['meta']['network'] == '4G':
+                self.entity.abs[ckey.NETSTATE] = ckey.NET_4G
+            elif json_obj['meta']['network'] == '3G':
+                self.entity.abs[ckey.NETSTATE] = ckey.NET_3G
+            elif json_obj['meta']['network'] == '2G':
+                self.entity.abs[ckey.NETSTATE] = ckey.NET_2G
             else:
-                self.logabs_navi[KEY_FAILED] = self.logabs_navi[KEY_FAILED] + 1
-                if json_obj['meta']['code'] == -1:
-                    if json_obj['meta']['stacks'] == '':
-                        self._err_nav_handler(errdef.ERR_NAV_STACKS_EMPTY)
-                    elif json_obj['meta']['ip'] == 'null':
-                        self._err_nav_handler(errdef.ERR_NAV_DNS_FAILED)
-                    elif 'lang.NullPointerException' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_NULLPOINTER)
-                    elif 'libcore.io.Streams.readAsciiLine' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_READASCIILINE)
-                    elif 'java.io.BufferedInputStream.streamClosed' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_STREAMCLOSED)
-                    elif 'Connection refused' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_CON_REFUSED)
-                    elif 'connect timed out' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_CON_TIMEOUT)
-                    elif 'failed to connect to' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_CON_FAILED)
-                    elif 'Stream closed' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_STREAM_CLOSED)
-                    elif 'SocketTimeoutException' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_SOCKET_TIMEOUT)
-                    elif 'SocketException: Connection reset' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_CON_RESET)
-                    elif 'unexpected end of stream on Connection' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_END_STREAM)
-                    elif 'recvfrom failed: ECONNRESET' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_ECONNRESET)
-                    elif 'SocketException: recvfrom failed: ETIMEDOUT' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_ETIMEDOUT)
-                    elif 'SocketException: Software caused connection abort' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_SOFTWARE_ABORT)
-                    elif 'ProtocolException: Too many follow-up requests' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_OKHTTP_TOOMANY_FOLLOWUP)
-                    elif 'SocketException: Network is unreachable' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_SOCKET_NETWORK_UNREACHABLE)
-                    elif 'ConnectException: Network is unreachable' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_CON_NETWORK_UNREACHABLE)
-                    elif 'SocketException: Connection timed out' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_CON_NETWORK_UNREACHABLE)
-                    elif 'SocketTimeoutException: failed to connect to' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_CON_NETWORK_UNREACHABLE)
-                    elif 'java.lang.NumberFormatException' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_NUMBER_FORMAT_EXCEPTION)
-                    elif 'com.android.okhttp' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_OKHTTP_CRASH)
-                    elif 'java.net.ProtocolException: Too many redirects' in json_obj['meta']['stacks']:
-                        self._err_nav_handler(errdef.ERR_NAV_PROTOCOL_TOO_MANY_REDIRECTS)
-                    else:
-                        self._raise_runtime_error('navi')
-                else:
-                    self._err_nav_handler(str(json_obj['meta']['code']))
+                self.entity.abs[ckey.NETSTATE] = ckey.NET_UNKNOWN
 
     def _fix_lack_brace(self):
         """
@@ -257,7 +153,7 @@ class Claw:
         """
         match = re.search('[^}]}$', self.log)
         if match is not None:
-            self._debug_err_info(sys._getframe().f_code.co_name, '')
+            self.write_debug_err(sys._getframe().f_code.co_name)
             self.log = self.log + '}'
             return True
         return False
@@ -271,7 +167,7 @@ class Claw:
                  2. 删除 stacks 行末的 '\\n'。
         """
         if '\\n"' in self.log or '\t' in self.log:
-            self._debug_err_info(sys._getframe().f_code.co_name, '')
+            self.write_debug_err(sys._getframe().f_code.co_name)
             self.log = self.log.replace('\\n"', '"')
             self.log = self.log.replace('\t', '    ')
             return True
@@ -290,11 +186,11 @@ class Claw:
         :return: 修复后的有效 json 对象。
         """
         target_platvers = ('Android-2.8.29')
-        if self.logabs[KEY_PLATVER] in target_platvers:
+        if self.entity.abs[ckey.PLATVER] in target_platvers:
             # value = '-1|2|http://navsg01-glb.ronghub.com/navi.xml|null|'
             key = 'code|duration|data|url|ip|stacks'
             if key in json_obj['meta']:
-                self._debug_err_info(sys._getframe().f_code.co_name, '')
+                self.write_debug_err(sys._getframe().f_code.co_name)
                 vlist = json_obj['meta'][key].split('|')
                 del json_obj['meta'][key]
                 json_obj['meta']['code'] = int(vlist[0])
@@ -304,20 +200,12 @@ class Claw:
                 self.log = json.dumps(json_obj)
         return json_obj
 
-    def _err_nav_handler(self, errtype):
-        self._debug_err_info(errtype, '')
-        if errtype not in self.logabs_navi[KEY_ERRCODE]:
-            self.logabs_navi[KEY_ERRCODE][errtype] = 1
-        else:
-            self.logabs_navi[KEY_ERRCODE][errtype] = \
-                self.logabs_navi[KEY_ERRCODE][errtype] + 1
-
     def _skip_file_unicode_encode_err(self):
         target_platvers = ('Android-2.8.29', 'Android-2.8.30', 'Android-2.8.31', 'Android-2.8.32',
                            'Android-2.9.0', 'Android-2.9.1')
-        if self.logabs[KEY_PLATVER] in target_platvers:
+        if self.entity.abs[ckey.PLATVER] in target_platvers:
             if not self.log.isprintable():
-                self._debug_err_info(sys._getframe().f_code.co_name, '')
+                self.write_debug_err(sys._getframe().f_code.co_name)
                 return True
         return False
 
@@ -329,7 +217,7 @@ class Claw:
         修复方案：忽略这一行。
         """
         if self.log.startswith('\x00'):
-            self._debug_err_info(sys._getframe().f_code.co_name, '')
+            self.write_debug_err(sys._getframe().f_code.co_name)
             return True
         return False
 
@@ -347,9 +235,9 @@ class Claw:
                 self.log.startswith('{"ti{"time"') or \
                 self.log.startswith('{"tim{"time"') or \
                 self.log.startswith('{"time{"time"') or self.log.count('{"time"') == 2:
-            if self.logabs[KEY_PLATVER] not in target_platvers:
-                self._raise_runtime_error()
-            self._debug_err_info(sys._getframe().f_code.co_name, '')
+            if self.entity.abs[ckey.PLATVER] not in target_platvers:
+                self.raise_runtime_err()
+            self.write_debug_err(sys._getframe().f_code.co_name)
             return True
         return False
 
@@ -363,34 +251,29 @@ class Claw:
                            'Android-2.9.0', 'Android-2.9.1')
         match = re.search('}}$', self.log)
         if match is None:
-            if self.logabs[KEY_PLATVER] not in target_platvers:
-                self._raise_runtime_error()
-            self._debug_err_info(sys._getframe().f_code.co_name, '')
+            if self.entity.abs[ckey.PLATVER] not in target_platvers:
+                self.raise_runtime_err()
+            self.write_debug_err(sys._getframe().f_code.co_name)
             return True
         return False
 
-    def _debug_err_info(self, errname, infodict):
+    def write_debug_err(self, title):
         if self.boot.params['debug']:
-            errdict = {KEY_FILELINE: self.filepath + ' +' + str(self.n), KEY_PLATVER: self.logabs[KEY_PLATVER],
-                       KEY_EXTRA: infodict}
-            self._write_summary('debug = {0}: {1}'.format(errname, errdict))
+            errdict = {ckey.FILELINE: self.filepath + ' +' + str(self.n), ckey.PLATVER: self.entity.abs[ckey.PLATVER]}
+            self.writer.write('debug = {0}: {1}'.format(title, errdict))
 
-    def _raise_runtime_error(self, info=''):
-        errdict = {KEY_FILELINE: self.filepath + ' +' + str(self.n), KEY_PLATVER: self.logabs[KEY_PLATVER],
-                   KEY_EXTRA: self.log}
-        self._write_summary('runtime error = {0}'.format(errdict))
+    def raise_runtime_err(self):
+        errdict = {ckey.FILELINE: self.filepath + ' +' + str(self.n), ckey.PLATVER: self.entity.abs[ckey.PLATVER],
+                   ckey.EXTRA: self.log}
+        self.writer.write('runtime error = {0}'.format(errdict))
         self.output()
-        self.boot.stop_parsing(self.filepath, self.logabs[KEY_LINENUM])
+        self.boot.stop_parsing(self.filepath, self.entity.abs[ckey.STARTLINE])
         time.sleep(1)
-        print('\nraise: ' + info)
         raise RuntimeError
 
     def output(self):
-        self._write_summary('-'.center(60, '-'))
-        self.logsum[KEY_HANDLE_PLATVER] = self.logsum_handle_platver
-        self.logsum[KEY_UNHANDLE_PLATVER] = self.logsum_unhandle_platver
-        self.logsum['navi'] = self.logsum_navi
-        self._write_summary('logsum = {0}\n'.format(self.logsum))
+        self.writer.write('-'.center(60, '-'))
+        self.writer.write(self.sum.summary())
 
 
 claw = Claw()
