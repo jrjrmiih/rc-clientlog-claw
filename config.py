@@ -46,8 +46,8 @@ db_create_table = \
 db_create_table_navi = \
     """ CREATE TABLE {0}_navi (uid INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
         appid VARCHAR(8), userid VARCHAR(20), starttime DATETIME(3),
-        pos VARCHAR(50), naviurl VARCHAR(50), ip VARCHAR(15),
-        code SMALLINT, dura SMALLINT UNSIGNED, crash VARCHAR(127))
+        pos VARCHAR(50), naviurl VARCHAR(50), naviip VARCHAR(15),
+        code SMALLINT, dura SMALLINT UNSIGNED, crash TEXT)
     """
 
 db_create_table_cmp = \
@@ -63,7 +63,12 @@ db_create_table_crash = \
         pos VARCHAR(50), type VARCHAR(20), info TEXT)
     """
 
-db_crash_template = \
+db_insert_navi_template = \
+    """ INSERT INTO {0}_navi (appid, userid, starttime, pos, naviurl, naviip, code, dura, crash)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """
+
+db_insert_crash_template = \
     """ INSERT INTO {0}_crash (appid, userid, starttime, pos, type, info)
         VALUES (%s, %s, %s, %s, %s, %s)
     """

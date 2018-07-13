@@ -47,12 +47,16 @@ class SdkState:
 
     def on_enter_navi_got(self, event):
         json_obj = event.args[0]
+        source = event.args[1]
+        linenum = event.args[2]
         code = json_obj['meta']['code']
         dura = json_obj['meta']['duration']
-        self.state_navi.on_got(code, dura)
+        self.state_navi.on_got(source, linenum, code, dura)
 
     def on_enter_navi_crash(self, event):
         json_obj = event.args[0]
+        source = event.args[1]
+        linenum = event.args[2]
         stacks = json_obj['meta']['stacks']
-        self.state_navi.on_crash(stacks)
+        self.state_navi.on_crash(source, linenum, stacks)
 

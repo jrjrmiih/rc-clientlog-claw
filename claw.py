@@ -14,7 +14,7 @@ class Claw:
         self.netstate = NetState()
 
     def start(self):
-        self.source.get_source_log(self.log_parse, self.log_parse_error)
+        self.source.get_source_log(self.log_parse, self.log_parse_error, self.flush_db)
 
     def log_parse(self, json_obj_list):
         self.sdkstate.start()
@@ -33,10 +33,9 @@ class Claw:
                     elif json_obj['tag'] == 'L-get_navi-T':
                         self.sdkstate.navi_get(json_obj)
                     elif json_obj['tag'] == 'L-get_navi-R':
-                        self.sdkstate.navi_got(json_obj)
+                        self.sdkstate.navi_got(json_obj, self.source, linenum)
                     elif json_obj['tag'] == 'L-crash-F':
-                        self.sdkstate.crash(json_obj)
-                self.sink.flush(self.source)
+                        self.sdkstate.crash(json_obj, self.source, linenum)
             except KeyError as err:
                 self.sink.insert_crash(self.source, linenum, 'KeyError', 'no key named ' + str(err))
                 startindex = index + 1
@@ -51,6 +50,8 @@ class Claw:
         print('\nlog parse error: {0} +{1}, {2}: {3}'.format(self.source.filepath, linenum, type, info))
         self.sink.insert_crash(self.source, linenum, type, info)
 
+    def flush_db(self):
+        self.sink.flush(self.sdkstate)
 
 claw = Claw()
 claw.start()

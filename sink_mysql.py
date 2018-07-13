@@ -27,10 +27,15 @@ class SinkMySql(Sink):
     def insert_crash(self, source, linenum, type, info):
         args = (source.appid, source.userid, source.starttime, linenum, type, info)
         self._db_crash_list.append(args)
-        pass
 
-    def flush(self, source):
+    def flush(self, sdkstate):
+        record_list = sdkstate.state_navi.record_list
+        if len(record_list) > 0:
+            self.cursor.executemany(config.db_insert_navi_template.format(self._tablename), record_list)
+            self.db.commit()
+        sdkstate.state_navi.record_list = []
+
         if len(self._db_crash_list) > 0:
-            self.cursor.executemany(config.db_crash_template.format(self._tablename), self._db_crash_list)
+            self.cursor.executemany(config.db_insert_crash_template.format(self._tablename), self._db_crash_list)
             self.db.commit()
         self._db_crash_list.clear()

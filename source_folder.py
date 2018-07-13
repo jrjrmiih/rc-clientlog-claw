@@ -131,7 +131,7 @@ class SourceFolder(Source):
                 else:
                     fw.write(line)
 
-    def get_source_log(self, cb_parser, cb_error):
+    def get_source_log(self, cb_parser, cb_error, cb_flush):
         """
         get an unparsed json object list which from the first line of 'fileName' file,
         end with the last line of the 'fileName' file.
@@ -153,6 +153,7 @@ class SourceFolder(Source):
                                            lambda: __print_log(n, len(self._logfiles), self._filepath,
                                                                int(self._linenum / LINE_UNIT),
                                                                int(len(lines) / LINE_UNIT)), cb_error)
+                    cb_flush()
             else:
                 # TODO: file doesn't exist, output warning.
                 pass
