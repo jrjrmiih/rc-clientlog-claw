@@ -1,9 +1,26 @@
+import json
 import re
+
+import time
 
 
 def get_appid_from_filepath(filepath):
     filename = filepath[filepath.rfind('/') + 1:]
     return filename[filename.find('_') + 1:filename.rfind('_')]
+
+
+def get_timestr(json_str):
+    """
+    获取文件 fileName 下的第一行日志的格式化时间。
+    """
+    try:
+        json_obj = json.loads(json_str)
+        timestamp = json_obj['time'] / 1000
+        time_local = time.localtime(timestamp)
+        timestr = time.strftime("%Y-%m-%d %H:%M:%S", time_local) + '.' + str(json_obj['time'] % 1000)
+    except Exception:
+        timestr = ''
+    return timestr
 
 
 def skip_logline_0x00(log):
