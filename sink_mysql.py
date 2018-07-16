@@ -8,7 +8,6 @@ class SinkMySql(Sink):
     def __init__(self):
         self.db = pymysql.connect('172.31.32.6', 'developer', '1234%^&*', 'rym_db')
         self.cursor = self.db.cursor()
-        self._db_crash_list = []
         self._tablename = '2018_07_12'
         self._init_table()
 
@@ -24,18 +23,25 @@ class SinkMySql(Sink):
             for template in create_template_list:
                 self.cursor.execute(template.format(self._tablename))
 
-    def insert_crash(self, source, linenum, type, info):
-        args = (source.appid, source.userid, source.starttime, linenum, type, info)
-        self._db_crash_list.append(args)
-
     def flush(self, sdkstate):
+        record_list = sdkstate.record_list
+        if len(record_list) > 0:
+            self.cursor.executemany(config.db_insert_main_template.format(self._tablename), record_list)
+            self.db.commit()
+
         record_list = sdkstate.state_navi.record_list
         if len(record_list) > 0:
             self.cursor.executemany(config.db_insert_navi_template.format(self._tablename), record_list)
             self.db.commit()
-        sdkstate.state_navi.record_list = []
 
-        if len(self._db_crash_list) > 0:
-            self.cursor.executemany(config.db_insert_crash_template.format(self._tablename), self._db_crash_list)
+        record_list = sdkstate.state_cmp.record_list
+        if len(record_list) > 0:
+            self.cursor.executemany(config.db_insert_cmp_template.format(self._tablename), record_list)
             self.db.commit()
-        self._db_crash_list.clear()
+
+        record_list = sdkstate.crash_list
+        if len(record_list) > 0:
+            self.cursor.executemany(config.db_insert_crash_template.format(self._tablename), record_list)
+            self.db.commit()
+
+        sdkstate.clear_all_lists()

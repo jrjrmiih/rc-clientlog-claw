@@ -9,15 +9,19 @@ class StateNavi:
         self.dura = 0
         self.crash = ''
 
-        self.record_list = []
+        self._record_list = []
 
-    def reset(self):
+    @property
+    def record_list(self):
+        return self._record_list
+
+    def clear_all(self):
         self.req = 0
         self.succ = 0
         self.fail = 0
-        self.reset_once()
+        self.clear_record()
 
-    def reset_once(self):
+    def clear_record(self):
         self.url = ''
         self.ip = ''
         self.code = 0
@@ -29,7 +33,7 @@ class StateNavi:
         self.url = url
         self.ip = ip
 
-    def on_got(self, source, linenum, code, dura):
+    def on_got(self, source, network, linenum, code, dura):
         self.code = code
         self.dura = dura
         if self.code == 200:
@@ -37,18 +41,18 @@ class StateNavi:
         else:
             self.fail = self.fail + 1
 
-        record = (source.appid, source.userid, source.starttime, linenum,
+        record = (source.appid, source.userid, source.starttime, network, linenum,
                   self.url, self.ip, self.code, self.dura, '')
-        self.record_list.append(record)
-        self.reset_once()
+        self._record_list.append(record)
+        self.clear_record()
 
-    def on_crash(self, source, linenum, stacks):
+    def on_crash(self, source, network, linenum, stacks):
         self.code = -1
         self.dura = 0
         self.crash = stacks
         self.fail = self.fail + 1
 
-        record = (source.appid, source.userid, source.starttime, linenum,
+        record = (source.appid, source.userid, source.starttime, network, linenum,
                   self.url, self.ip, self.code, self.dura, self.crash)
-        self.record_list.append(record)
-        self.reset_once()
+        self._record_list.append(record)
+        self.clear_record()

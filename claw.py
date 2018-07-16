@@ -1,6 +1,5 @@
 from transitions import MachineError
 
-from netstate import NetState
 from sdkstate import SdkState
 from sink_mysql import SinkMySql
 from source_folder import SourceFolder
@@ -11,7 +10,6 @@ class Claw:
         self.source = SourceFolder()
         self.sink = SinkMySql()
         self.sdkstate = SdkState()
-        self.netstate = NetState()
 
     def start(self):
         self.source.get_source_log(self.log_parse, self.log_parse_error, self.flush_db)
@@ -34,21 +32,32 @@ class Claw:
                         self.sdkstate.navi_get(json_obj)
                     elif json_obj['tag'] == 'L-get_navi-R':
                         self.sdkstate.navi_got(json_obj, self.source, linenum)
+                    elif json_obj['tag'] == 'A-connect-T':
+                        self.sdkstate.cmp_aget(json_obj, self.source, linenum)
+                    elif json_obj['tag'] == 'A-connect-R':
+                        self.sdkstate.cmp_agot(json_obj, self.source, linenum)
+                    elif json_obj['tag'] == 'P-connect-T':
+                        self.sdkstate.cmp_pget(json_obj, self.source, linenum)
+                    elif json_obj['tag'] == 'P-connect-R':
+                        self.sdkstate.cmp_pgot(json_obj, self.source, linenum)
+                    elif json_obj['tag'] == 'L-network_changed-S':
+                        self.sdkstate.on_network_changed(json_obj)
                     elif json_obj['tag'] == 'L-crash-F':
                         self.sdkstate.crash(json_obj, self.source, linenum)
+                self.sdkstate.end(json_obj, self.source, linenum)
             except KeyError as err:
-                self.sink.insert_crash(self.source, linenum, 'KeyError', 'no key named ' + str(err))
+                self.sdkstate.append_crash(self.source, linenum, 'KeyError', 'no key named ' + str(err))
                 startindex = index + 1
                 continue
             except MachineError as err:
-                self.sink.insert_crash(self.source, linenum, 'StateError', json_obj['meta']['stacks'])
+                self.sdkstate.append_crash(self.source, linenum, 'StateError', json_obj['meta']['stacks'])
                 startindex = index + 1
                 continue
             break
 
     def log_parse_error(self, linenum, type, info):
         print('\nlog parse error: {0} +{1}, {2}: {3}'.format(self.source.filepath, linenum, type, info))
-        self.sink.insert_crash(self.source, linenum, type, info)
+        self.sdkstate.append_crash(self.source, linenum, type, info)
 
     def flush_db(self):
         self.sink.flush(self.sdkstate)

@@ -4,8 +4,6 @@ import os
 import re
 import sys
 
-from transitions import MachineError
-
 import config
 import tools
 from source import Source
@@ -29,6 +27,8 @@ class SourceFolder(Source):
         self._startline = 1
         self._logfiles = []
         self._read_loadfile()
+
+        self._check_duplicate_list = []
 
     @property
     def appid(self):
@@ -163,6 +163,7 @@ class SourceFolder(Source):
         support = False
         startline = self._startline
         json_obj_list = []
+        self._check_duplicate_list = []
         while True:
             try:
                 for self._linenum in range(startline, len(loglines) + 1):
@@ -173,6 +174,8 @@ class SourceFolder(Source):
                         support = self._parse_filename(log)
                         self._startline = self._linenum
                         self._starttime = tools.get_timestr(loglines[self._linenum].strip())
+                        if support:
+                            support = self._check_duplicate()
                     elif log == '' and len(json_obj_list) > 0:
                         self._endtime = tools.get_timestr(loglines[self._linenum - 2].strip())
                         cb_parser(json_obj_list)
@@ -211,3 +214,11 @@ class SourceFolder(Source):
         self._platver = items[4] + '-' + items[3]
         self._userip = items[5]
         return self._platver in config.support_list
+
+    def _check_duplicate(self):
+        for appid, userid, starttime in self._check_duplicate_list:
+            if starttime == self._starttime and userid == self._userid and appid == self._appid:
+                print('duplicate item: appid = {0}, useid = {1}, starttime = {2}'.format(appid, userid, starttime))
+                return False
+        self._check_duplicate_list.append((self._appid, self._userid, self._starttime))
+        return True
