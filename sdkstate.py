@@ -77,6 +77,16 @@ class SdkState:
         dura = json_obj['meta']['duration']
         self.state_navi.on_got(source, self.network, linenum, code, dura)
 
+    def on_enter_navi_decode(self, event):
+        json_obj = event.args[0]
+        source = event.args[1]
+        linenum = event.args[2]
+        code = json_obj['meta']['code']
+        data = None
+        if code != 0:
+            data = json_obj['meta']['data']
+        self.state_navi.on_decode(source, self.network, linenum, code, data)
+
     def on_enter_navi_crash(self, event):
         json_obj = event.args[0]
         source = event.args[1]

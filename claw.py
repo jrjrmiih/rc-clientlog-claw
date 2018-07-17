@@ -32,6 +32,8 @@ class Claw:
                         self.sdkstate.navi_get(json_obj)
                     elif json_obj['tag'] == 'L-get_navi-R':
                         self.sdkstate.navi_got(json_obj, self.source, linenum)
+                    elif json_obj['tag'] == 'L-decode_navi-S':
+                        self.sdkstate.navi_decode(json_obj, self.source, linenum)
                     elif json_obj['tag'] == 'A-connect-T':
                         self.sdkstate.cmp_aget(json_obj, self.source, linenum)
                     elif json_obj['tag'] == 'A-connect-R':

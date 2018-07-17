@@ -54,7 +54,7 @@ db_create_table_navi = \
     """ CREATE TABLE {0}_navi (uid INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
         appid VARCHAR(8), userid VARCHAR(20), starttime DATETIME(3), network VARCHAR(10),
         pos VARCHAR(50), naviurl VARCHAR(50), naviip VARCHAR(15),
-        code SMALLINT, dura INT UNSIGNED, crash TEXT)
+        ccode SMALLINT, dura INT UNSIGNED, crash TEXT, dcode SMALLINT, ddata TEXT)
     """
 
 db_create_table_cmp = \
@@ -77,12 +77,14 @@ db_insert_main_template = \
     """
 
 db_insert_navi_template = \
-    """ INSERT INTO {0}_navi (appid, userid, starttime, network, pos, naviurl, naviip, CODE, dura, crash)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """ INSERT INTO {0}_navi (appid, userid, starttime, network, pos,
+        naviurl, naviip, ccode, dura, crash, dcode, ddata)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
 
 db_insert_cmp_template = \
-    """ INSERT INTO {0}_cmp (appid, userid, starttime, network, pos, conntype, cmpurls, useurl, scode, ncode, dura)
+    """ INSERT INTO {0}_cmp (appid, userid, starttime, network, pos,
+        conntype, cmpurls, useurl, scode, ncode, dura)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
 

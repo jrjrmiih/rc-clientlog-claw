@@ -3,11 +3,13 @@ class StateNavi:
         self.req = 0
         self.succ = 0
         self.fail = 0
-        self.url = ''
-        self.ip = ''
-        self.code = 0
-        self.dura = 0
-        self.crash = ''
+        self.url = None
+        self.ip = None
+        self.ccode = None  # 导航请求的 http response code。
+        self.dura = None
+        self.crash = None
+        self.dcode = None  # 导航解析的结果码。
+        self.ddata = None  # 导航解析的内容，同时也是 http navi request 的 body。
 
         self._record_list = []
 
@@ -25,37 +27,46 @@ class StateNavi:
         self.fail = 0
 
     def _clear_get(self):
-        self.url = ''
-        self.ip = ''
-        self.code = 0
-        self.dura = 0
-        self.crash = ''
+        self.url = None
+        self.ip = None
+        self.ccode = None
+        self.dura = None
+        self.crash = None
+        self.dcode = None
+        self.ddata =None
 
     def on_get(self, url, ip):
         self.req = self.req + 1
         self.url = url
-        self.ip = ip
+        self.ip = None if ip == 'null' else ip
 
     def on_got(self, source, network, linenum, code, dura):
-        self.code = code
+        self.ccode = code
         self.dura = dura
-        if self.code == 200:
+        if self.ccode == 200:
             self.succ = self.succ + 1
         else:
             self.fail = self.fail + 1
 
-        record = (source.appid, source.userid, source.starttime, network, linenum,
-                  self.url, self.ip, self.code, self.dura, '')
-        self._record_list.append(record)
-        self._clear_get()
+    def on_decode(self, source, network, linenum, code, data):
+        self.dcode = code
+        self.ddata = data
+        if self.ccode is not None:
+            record = (source.appid, source.userid, source.starttime, network, linenum,
+                      self.url, self.ip, self.ccode, self.dura, None, self.dcode, self.ddata)
+            self._record_list.append(record)
+            self._clear_get()
 
     def on_crash(self, source, network, linenum, stacks):
-        self.code = -1
-        self.dura = 0
+        self.ccode = -1
+        self.dura = None
         self.crash = stacks
         self.fail = self.fail + 1
+        self.dcode = None
+        self.ddata = None
 
         record = (source.appid, source.userid, source.starttime, network, linenum,
-                  self.url, self.ip, self.code, self.dura, self.crash)
+                  self.url, self.ip, self.ccode, self.dura, self.crash, self.dcode, self.ddata)
         self._record_list.append(record)
         self._clear_get()
+
