@@ -16,12 +16,15 @@ class StateNavi:
         return self._record_list
 
     def clear_all(self):
+        self.clear_count()
+        self._record_list.clear()
+
+    def clear_count(self):
         self.req = 0
         self.succ = 0
         self.fail = 0
-        self.clear_record()
 
-    def clear_record(self):
+    def _clear_get(self):
         self.url = ''
         self.ip = ''
         self.code = 0
@@ -44,7 +47,7 @@ class StateNavi:
         record = (source.appid, source.userid, source.starttime, network, linenum,
                   self.url, self.ip, self.code, self.dura, '')
         self._record_list.append(record)
-        self.clear_record()
+        self._clear_get()
 
     def on_crash(self, source, network, linenum, stacks):
         self.code = -1
@@ -55,4 +58,4 @@ class StateNavi:
         record = (source.appid, source.userid, source.starttime, network, linenum,
                   self.url, self.ip, self.code, self.dura, self.crash)
         self._record_list.append(record)
-        self.clear_record()
+        self._clear_get()

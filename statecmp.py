@@ -14,12 +14,15 @@ class StateCmp:
         return self._record_list
 
     def clear_all(self):
+        self.clear_count()
+        self._record_list.clear()
+
+    def clear_count(self):
         self.req = 0
         self.succ = 0
         self.fail = 0
-        self.clear_record()
 
-    def clear_record(self):
+    def _clear_get(self):
         self.conntype = 0
         self.cmpurls = ''
         self.useurl = ''

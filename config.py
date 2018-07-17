@@ -43,11 +43,11 @@ support_tag = [
 ]
 
 db_create_table = \
-    """ CREATE TABLE {0} (appid VARCHAR(8), userid VARCHAR(20), platver VARCHAR(15), userip VARCHAR(15),
+    """ CREATE TABLE {0} (uid INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        appid VARCHAR(8), userid VARCHAR(20), platver VARCHAR(15), userip VARCHAR(15),
         filepath VARCHAR(127), starttime DATETIME(3), endtime DATETIME(3),
         navireq TINYINT UNSIGNED, navisucc TINYINT UNSIGNED, navifail TINYINT UNSIGNED,
-        cmpreq TINYINT UNSIGNED, cmpsucc TINYINT UNSIGNED, cmpfail TINYINT UNSIGNED,
-        PRIMARY KEY(appid, userid, starttime))
+        cmpreq TINYINT UNSIGNED, cmpsucc TINYINT UNSIGNED, cmpfail TINYINT UNSIGNED)
     """
 
 db_create_table_navi = \

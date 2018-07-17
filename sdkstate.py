@@ -57,8 +57,8 @@ class SdkState:
     def on_enter_start(self, event):
         self._has_init = False
         self.network = config.NET_UNKNOWN
-        self.state_navi.clear_all()
-        self.state_cmp.clear_all()
+        self.state_navi.clear_count()
+        self.state_cmp.clear_count()
 
     def on_enter_init(self, event):
         self._has_init = True
@@ -106,7 +106,7 @@ class SdkState:
         scode = json_obj['meta']['status_code']
         ncode = json_obj['meta']['native_code']
         dura = json_obj['meta']['duration']
-        network = json_obj['meta']['network'] if json_obj['meta']['network'] != '' else config.NET_UNKNOWN
+        network = json_obj['meta']['network'] if json_obj['meta']['network'] != '' else self.network
         self.state_cmp.on_pgot(source, network, linenum, scode, ncode, dura)
 
     def on_enter_end(self, event):

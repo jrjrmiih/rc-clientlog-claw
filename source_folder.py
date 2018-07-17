@@ -28,7 +28,7 @@ class SourceFolder(Source):
         self._logfiles = []
         self._read_loadfile()
 
-        self._check_duplicate_list = []
+        # self._check_duplicate_list = []
 
     @property
     def appid(self):
@@ -131,6 +131,9 @@ class SourceFolder(Source):
                 else:
                     fw.write(line)
 
+    def _reset_param(self):
+        self._startline = 1
+
     def get_source_log(self, cb_parser, cb_error, cb_flush):
         """
         get an unparsed json object list which from the first line of 'fileName' file,
@@ -154,6 +157,7 @@ class SourceFolder(Source):
                                                                int(self._linenum / LINE_UNIT),
                                                                int(len(lines) / LINE_UNIT)), cb_error)
                     cb_flush()
+                    self._reset_param()
             else:
                 # TODO: file doesn't exist, output warning.
                 pass
@@ -167,6 +171,8 @@ class SourceFolder(Source):
         while True:
             try:
                 for self._linenum in range(startline, len(loglines) + 1):
+                    if self._linenum == 153255:
+                        print()
                     if self._linenum % LINE_UNIT == 0:
                         cb_update()
                     log = loglines[self._linenum - 1].strip()
@@ -174,9 +180,9 @@ class SourceFolder(Source):
                         support = self._parse_filename(log)
                         self._startline = self._linenum
                         self._starttime = tools.get_timestr(loglines[self._linenum].strip())
-                        if support:
-                            support = self._check_duplicate()
-                    elif log == '' and len(json_obj_list) > 0:
+                        # if support:
+                        #     support = self._check_duplicate()
+                    elif (log == '' or log.startswith('\x00')) and len(json_obj_list) > 0:
                         self._endtime = tools.get_timestr(loglines[self._linenum - 2].strip())
                         cb_parser(json_obj_list)
                         json_obj_list = []
@@ -215,10 +221,10 @@ class SourceFolder(Source):
         self._userip = items[5]
         return self._platver in config.support_list
 
-    def _check_duplicate(self):
-        for appid, userid, starttime in self._check_duplicate_list:
-            if starttime == self._starttime and userid == self._userid and appid == self._appid:
-                print('duplicate item: appid = {0}, useid = {1}, starttime = {2}'.format(appid, userid, starttime))
-                return False
-        self._check_duplicate_list.append((self._appid, self._userid, self._starttime))
-        return True
+    # def _check_duplicate(self):
+    #     for appid, userid, starttime in self._check_duplicate_list:
+    #         if starttime == self._starttime and userid == self._userid and appid == self._appid:
+    #             print('duplicate item: appid = {0}, useid = {1}, starttime = {2}'.format(appid, userid, starttime))
+    #             return False
+    #     self._check_duplicate_list.append((self._appid, self._userid, self._starttime))
+    #     return True
