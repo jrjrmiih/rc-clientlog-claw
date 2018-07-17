@@ -150,7 +150,7 @@ class SourceFolder(Source):
                 self._appid = tools.get_appid_from_filepath(self._filepath)
                 with open(self._filepath, 'r', encoding='utf-8', errors='ignore') as f:
                     lines = f.readlines()
-                    __print_log(n, len(self._logfiles), self._filepath,
+                    __print_log(n + 1, len(self._logfiles), self._filepath,
                                 int(self._startline / LINE_UNIT), int(len(lines) / LINE_UNIT))
                     self._get_source_lines(lines, cb_parser,
                                            lambda: __print_log(n, len(self._logfiles), self._filepath,
@@ -171,8 +171,6 @@ class SourceFolder(Source):
         while True:
             try:
                 for self._linenum in range(startline, len(loglines) + 1):
-                    if self._linenum == 153255:
-                        print()
                     if self._linenum % LINE_UNIT == 0:
                         cb_update()
                     log = loglines[self._linenum - 1].strip()
